@@ -90,37 +90,42 @@ export default function RunExecute() {
       // Save to our DB permanently
       await saveSapPayload(objectType, objectId, result);
     } catch (err) {
-      // Fallback: try local proxy on localhost:8585 (runs on Windows with VPN)
+      // Fallback: if on localhost (local proxy), send SAP request through same origin
       console.log('[ProofForge] Server fetch failed:', err.message);
-      console.log('[ProofForge] Trying local proxy at localhost:8585...');
-      try {
-        const client = sys.client || '000';
-        const odataPath = `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
-        const proxyUrl = `http://localhost:8585${odataPath}`;
-        console.log('[ProofForge] Proxy URL:', proxyUrl);
-        const auth = btoa(`${sys.user}:${sys.password}`);
-        const res2 = await fetch(proxyUrl, {
-          headers: {
-            'Authorization': `Basic ${auth}`,
-            'Accept': 'application/json',
-            'X-SAP-Target': sys.base_url,
-          },
-        });
-        console.log('[ProofForge] Proxy response status:', res2.status);
-        if (!res2.ok) {
-          const errText = await res2.text();
-          console.log('[ProofForge] Proxy error:', errText.slice(0, 500));
-          throw new Error(`Proxy ${res2.status}: ${errText.slice(0, 100)}`);
+      const isLocalProxy = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (isLocalProxy) {
+        console.log('[ProofForge] On local proxy — routing SAP request through same origin...');
+        try {
+          const client = sys.client || '000';
+          const odataPath = `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
+          console.log('[ProofForge] SAP path:', odataPath);
+          const auth = btoa(`${sys.user}:${sys.password}`);
+          const res2 = await fetch(odataPath, {
+            headers: {
+              'Authorization': `Basic ${auth}`,
+              'Accept': 'application/json',
+              'X-SAP-Target': sys.base_url,
+            },
+          });
+          console.log('[ProofForge] Proxy response:', res2.status);
+          if (!res2.ok) {
+            const errText = await res2.text();
+            console.log('[ProofForge] SAP error:', errText.slice(0, 500));
+            throw new Error(`SAP ${res2.status}: ${errText.slice(0, 100)}`);
+          }
+          const data2 = await res2.json();
+          console.log('[ProofForge] SAP data received, items:', data2?.d?.results?.length || 0);
+          const items = data2?.d?.results || [];
+          const result = { items, fetched_at: new Date().toISOString() };
+          setSapDocs((prev) => ({ ...prev, [key]: result }));
+          await saveSapPayload(objectType, objectId, result);
+        } catch (err2) {
+          console.error('[ProofForge] SAP via proxy failed:', err2.message);
+          setSapDocs((prev) => ({ ...prev, [key]: { error: `Server: ${err.message}. Proxy: ${err2.message}` } }));
         }
-        const data2 = await res2.json();
-        console.log('[ProofForge] SAP data via proxy, results:', data2?.d?.results?.length || 0);
-        const items = data2?.d?.results || [];
-        const result = { items, fetched_at: new Date().toISOString() };
-        setSapDocs((prev) => ({ ...prev, [key]: result }));
-        await saveSapPayload(objectType, objectId, result);
-      } catch (err2) {
-        console.error('[ProofForge] Local proxy failed:', err2.message);
-        setSapDocs((prev) => ({ ...prev, [key]: { error: `Server: ${err.message}. Local proxy: ${err2.message}. Run "node proxy.mjs" on this machine.` } }));
+      } else {
+        console.error('[ProofForge] Open ProofForge via http://localhost:8585 to use SAP fetch through local proxy');
+        setSapDocs((prev) => ({ ...prev, [key]: { error: `${err.message}. To fetch SAP data, open ProofForge at http://localhost:8585 (with proxy running).` } }));
       }
     }
   };

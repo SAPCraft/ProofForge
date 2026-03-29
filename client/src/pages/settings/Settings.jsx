@@ -89,6 +89,9 @@ function LocalProxySection() {
   React.useEffect(() => { checkProxy(); const t = setInterval(checkProxy, 10000); return () => clearInterval(t); }, []);
 
   const downloadProxy = () => {
+    const pfHost = window.location.hostname;
+    const pfPort = window.location.port || '3000';
+    const pfOrigin = `http://${pfHost}:${pfPort}`;
     const cmd = `@echo off
 title ProofForge SAP Proxy
 chcp 65001 >nul 2>&1
@@ -108,11 +111,14 @@ if %errorlevel% neq 0 (
 )
 
 for /f "tokens=*" %%v in ('node --version') do echo   Node.js %%v
-echo   Starting proxy on http://localhost:8585
+echo   Starting on http://localhost:8585
+echo   ProofForge backend: ${pfOrigin}
 echo   Keep this window open while using ProofForge.
 echo.
+echo   Open ProofForge at: http://localhost:8585
+echo.
 
-node -e "const http=require('http'),https=require('https');const s=http.createServer((q,r)=>{r.setHeader('Access-Control-Allow-Origin','*');r.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,DELETE,OPTIONS');r.setHeader('Access-Control-Allow-Headers','Authorization,Content-Type,Accept,X-SAP-Target');if(q.method==='OPTIONS'){r.writeHead(204);r.end();return}if(q.url==='/health'){r.writeHead(200,{'Content-Type':'application/json'});r.end(JSON.stringify({status:'ok',proxy:'ProofForge SAP Local Proxy'}));return}const t=q.headers['x-sap-target'];if(!t){r.writeHead(400);r.end(JSON.stringify({error:'Missing X-SAP-Target'}));return}const u=t+q.url;console.log(new Date().toLocaleTimeString()+' '+q.method+' '+u);const m=u.startsWith('https')?https:http;const p=m.request(u,{method:q.method,headers:{...q.headers,host:new URL(t).host},rejectUnauthorized:false},z=>{const h={...z.headers};h['access-control-allow-origin']='*';console.log(new Date().toLocaleTimeString()+' <- '+z.statusCode);r.writeHead(z.statusCode,h);z.pipe(r)});p.on('error',e=>{console.error('ERR: '+e.message);r.writeHead(502);r.end(JSON.stringify({error:e.message}))});p.setTimeout(30000,()=>{p.destroy()});q.pipe(p)});s.listen(8585,()=>{console.log('  Ready! Listening on http://localhost:8585');console.log('')})"
+node -e "const http=require('http'),https=require('https');const PF='${pfOrigin}';const s=http.createServer((q,r)=>{const ts=()=>new Date().toLocaleTimeString();if(q.url==='/health'){r.writeHead(200,{'Content-Type':'application/json'});r.end(JSON.stringify({status:'ok'}));return}const sapTarget=q.headers['x-sap-target'];if(sapTarget){r.setHeader('Access-Control-Allow-Origin','*');r.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,DELETE,OPTIONS');r.setHeader('Access-Control-Allow-Headers','Authorization,Content-Type,Accept,X-SAP-Target');if(q.method==='OPTIONS'){r.writeHead(204);r.end();return}const u=sapTarget+q.url;console.log(ts()+' [SAP] '+q.method+' '+u);const m=u.startsWith('https')?https:http;const p=m.request(u,{method:q.method,headers:{...q.headers,host:new URL(sapTarget).host,'x-sap-target':undefined},rejectUnauthorized:false},z=>{const h={...z.headers};h['access-control-allow-origin']='*';console.log(ts()+' [SAP] <- '+z.statusCode);r.writeHead(z.statusCode,h);z.pipe(r)});p.on('error',e=>{console.error(ts()+' [SAP] ERR: '+e.message);r.writeHead(502);r.end(JSON.stringify({error:e.message}))});p.setTimeout(30000,()=>p.destroy());q.pipe(p);return}console.log(ts()+' [PF] '+q.method+' '+q.url);const pfUrl=PF+q.url;const pf=http.request(pfUrl,{method:q.method,headers:{...q.headers,host:new URL(PF).host}},z=>{r.writeHead(z.statusCode,z.headers);z.pipe(r)});pf.on('error',e=>{console.error(ts()+' [PF] ERR: '+e.message);r.writeHead(502);r.end('ProofForge backend unavailable')});q.pipe(pf)});s.listen(8585,()=>{console.log('  Ready! Open http://localhost:8585');console.log('')})"
 
 echo.
 pause
