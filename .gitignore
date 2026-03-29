@@ -37,3 +37,15 @@ logs/
 # Temp
 tmp/
 temp/
+
+# ProofForge data (persisted via Docker volume)
+data/scenarios/
+data/plans/
+data/runs/
+data/defects/
+data/users/
+data/attachments/
+data/counters.json
+
+# Server public (built from client)
+server/public/
