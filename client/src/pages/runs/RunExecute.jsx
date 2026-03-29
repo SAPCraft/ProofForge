@@ -18,6 +18,7 @@ export default function RunExecute() {
   const [sapDocType, setSapDocType] = useState('Cash Document');
   const [sapDocNum, setSapDocNum] = useState('');
   const [pastedImages, setPastedImages] = useState([]);
+  const [sapDocs, setSapDocs] = useState({});   // { 'FI Document_123': { items, loading, error } }
   const fileRef = useRef(null);
 
   const load = async () => {
@@ -46,6 +47,78 @@ export default function RunExecute() {
     setComment('');
     load();
   };
+
+  const fetchSapDocument = async (objectType, objectId) => {
+    const key = `${objectType}_${objectId}`;
+    setSapDocs((prev) => ({ ...prev, [key]: { loading: true } }));
+    const sys = run.sap_system;
+    if (!sys?.base_url || !sys?.user || !sys?.password) {
+      setSapDocs((prev) => ({ ...prev, [key]: { error: 'SAP credentials not configured' } }));
+      return;
+    }
+    try {
+      // Try server-side proxy first (works if VPS has access), then client-side
+      const res = await fetch('/api/sap/fetch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('pf_token')}`,
+        },
+        body: JSON.stringify({
+          sap_system: sys,
+          object_type: objectType,
+          object_id: objectId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setSapDocs((prev) => ({ ...prev, [key]: { items: data.items, fiori_link: data.fiori_link, fetched_at: data.fetched_at } }));
+    } catch (err) {
+      // Fallback: try direct fetch from browser (client on VPN)
+      try {
+        const client = sys.client || '000';
+        const odataUrl = `${sys.base_url}/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
+        const auth = btoa(`${sys.user}:${sys.password}`);
+        const res2 = await fetch(odataUrl, {
+          headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' },
+        });
+        if (!res2.ok) throw new Error(`SAP ${res2.status}`);
+        const data2 = await res2.json();
+        const items = data2?.d?.results || [];
+        setSapDocs((prev) => ({ ...prev, [key]: { items, fetched_at: new Date().toISOString() } }));
+      } catch (err2) {
+        setSapDocs((prev) => ({ ...prev, [key]: { error: `${err.message}. Direct: ${err2.message}` } }));
+      }
+    }
+  };
+
+  const buildSapDocLink = (objectType, objectId) => {
+    const sys = run.sap_system;
+    if (!sys?.base_url) return null;
+    const client = sys.client || '000';
+    const lang = sys.language || 'EN';
+    if (objectType === 'FI Document') {
+      return `${sys.base_url}/sap/bc/ui2/flp?sap-client=${client}&sap-language=${lang}#FinancialAccounting-displayJournalEntry?AccountingDocument=${objectId}`;
+    }
+    return null;
+  };
+
+  // Key fields to show for FI document line items
+  const FI_DISPLAY_FIELDS = [
+    { key: 'CompanyCode', label: 'CoCd' },
+    { key: 'AccountingDocumentItem', label: 'Item' },
+    { key: 'GLAccount', label: 'G/L Account' },
+    { key: 'GLAccountName', label: 'Account Name' },
+    { key: 'DebitAmountInTransCrcy', label: 'Debit' },
+    { key: 'CreditAmountInTransCrcy', label: 'Credit' },
+    { key: 'TransactionCurrency', label: 'Currency' },
+    { key: 'Customer', label: 'Customer' },
+    { key: 'Supplier', label: 'Supplier' },
+    { key: 'ProfitCenter', label: 'Profit Center' },
+    { key: 'PostingDate', label: 'Posting Date' },
+    { key: 'DocumentDate', label: 'Doc Date' },
+    { key: 'AccountingDocumentType', label: 'Doc Type' },
+  ];
 
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
@@ -237,6 +310,20 @@ export default function RunExecute() {
           onChange={(e) => handleUpdateSapSystem('language', e.target.value)}
           style={{ width: '40px', fontSize: '11px', textAlign: 'center' }}
         />
+        <span style={{ color: '#6b7280', marginLeft: '8px' }}>User:</span>
+        <input
+          placeholder="SAP user"
+          value={run.sap_system?.user || ''}
+          onChange={(e) => handleUpdateSapSystem('user', e.target.value)}
+          style={{ width: '100px', fontSize: '11px' }}
+        />
+        <input
+          type="password"
+          placeholder="password"
+          value={run.sap_system?.password || ''}
+          onChange={(e) => handleUpdateSapSystem('password', e.target.value)}
+          style={{ width: '90px', fontSize: '11px' }}
+        />
         {buildFlpHomeUrl() && (
           <a href={buildFlpHomeUrl()} target="_blank" rel="noopener" className="btn btn-sm btn-primary" style={{ marginLeft: 'auto', textDecoration: 'none' }}>
             Open Fiori Launchpad
@@ -357,23 +444,78 @@ export default function RunExecute() {
                         {/* SAP Objects */}
                         {att.sap_objects?.length > 0 && (
                           <div className="sap-objects">
-                            <label>SAP Objects</label>
-                            {att.sap_objects.map((obj, i) => (
-                              <div key={i} className="sap-object" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span className="sap-type">{obj.object_type}</span>
-                                <span className="sap-id">{obj.object_id || obj.object_number}</span>
-                                {obj.source_system && <span className="sap-sys">{obj.source_system}</span>}
-                                <button
-                                  className="btn-icon"
-                                  style={{ fontSize: '12px', padding: '0 4px', marginLeft: '4px' }}
-                                  title="Remove"
-                                  onClick={() => {
-                                    const updated = att.sap_objects.filter((_, idx) => idx !== i);
-                                    handleUpdateAttempt(activeStep, att.attempt_number, { sap_objects: updated });
-                                  }}
-                                >×</button>
-                              </div>
-                            ))}
+                            <label>SAP Documents</label>
+                            {att.sap_objects.map((obj, i) => {
+                              const docKey = `${obj.object_type}_${obj.object_id}`;
+                              const docData = sapDocs[docKey];
+                              const docLink = buildSapDocLink(obj.object_type, obj.object_id);
+                              return (
+                                <div key={i} style={{ border: '1px solid #e2e5e9', borderRadius: '6px', marginBottom: '8px', overflow: 'hidden' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: '#fafbfc' }}>
+                                    <span className="sap-type">{obj.object_type}</span>
+                                    <span className="sap-id" style={{ fontWeight: 600 }}>{obj.object_id}</span>
+                                    {docLink && (
+                                      <a href={docLink} target="_blank" rel="noopener" style={{ fontSize: '11px', color: '#4c6fff', textDecoration: 'none' }}>
+                                        Open in SAP ↗
+                                      </a>
+                                    )}
+                                    <button
+                                      className="btn btn-sm"
+                                      style={{ marginLeft: 'auto', fontSize: '10px' }}
+                                      onClick={() => fetchSapDocument(obj.object_type, obj.object_id)}
+                                      disabled={docData?.loading}
+                                    >
+                                      {docData?.loading ? 'Loading...' : docData?.items ? '↻ Refresh' : '⬇ Fetch from SAP'}
+                                    </button>
+                                    <button
+                                      className="btn-icon"
+                                      style={{ fontSize: '12px', padding: '0 4px' }}
+                                      title="Remove"
+                                      onClick={() => {
+                                        const updated = att.sap_objects.filter((_, idx) => idx !== i);
+                                        handleUpdateAttempt(activeStep, att.attempt_number, { sap_objects: updated });
+                                      }}
+                                    >×</button>
+                                  </div>
+                                  {docData?.error && (
+                                    <div style={{ padding: '8px 10px', color: '#c62828', fontSize: '11px', background: '#fce4ec' }}>
+                                      {docData.error}
+                                    </div>
+                                  )}
+                                  {docData?.items && (
+                                    <div style={{ padding: '0', overflow: 'auto', maxHeight: '300px' }}>
+                                      {docData.items.length === 0 ? (
+                                        <div style={{ padding: '10px', color: '#6b7280', fontSize: '12px' }}>No data returned from SAP</div>
+                                      ) : (
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                                          <thead>
+                                            <tr style={{ background: '#f0f2f5', position: 'sticky', top: 0 }}>
+                                              {FI_DISPLAY_FIELDS.filter((f) => docData.items.some((item) => item[f.key])).map((f) => (
+                                                <th key={f.key} style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 600, color: '#4a5568', whiteSpace: 'nowrap', borderBottom: '1px solid #e2e5e9' }}>{f.label}</th>
+                                              ))}
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {docData.items.map((item, idx) => (
+                                              <tr key={idx} style={{ borderBottom: '1px solid #eef0f3' }}>
+                                                {FI_DISPLAY_FIELDS.filter((f) => docData.items.some((it) => it[f.key])).map((f) => (
+                                                  <td key={f.key} style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>
+                                                    {f.key.includes('Amount') && item[f.key] ? Number(item[f.key]).toLocaleString() : item[f.key] || ''}
+                                                  </td>
+                                                ))}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                      <div style={{ padding: '4px 10px', fontSize: '10px', color: '#9ca3af', borderTop: '1px solid #eef0f3' }}>
+                                        Fetched {new Date(docData.fetched_at).toLocaleString()} · {docData.items.length} line items
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
 

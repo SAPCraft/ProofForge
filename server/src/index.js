@@ -11,6 +11,7 @@ import planRoutes from './routes/plans.js';
 import runRoutes from './routes/runs.js';
 import defectRoutes from './routes/defects.js';
 import attachmentRoutes from './routes/attachments.js';
+import sapRoutes from './routes/sap.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -27,6 +28,7 @@ app.use('/api/plans', authMiddleware, planRoutes);
 app.use('/api/runs', authMiddleware, runRoutes);
 app.use('/api/defects', authMiddleware, defectRoutes);
 app.use('/api/attachments', authMiddleware, attachmentRoutes);
+app.use('/api/sap', authMiddleware, sapRoutes);
 
 // Serve static frontend
 const publicDir = path.join(__dirname, '../public');
