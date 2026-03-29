@@ -205,13 +205,20 @@ export default function RunExecute() {
         if (objectType === 'Cash Document') {
           console.log('[ProofForge] Fetching Cash Journal data from TCJ_* tables...');
 
-          // TCJ_DOCUMENTS — cash journal document header
+          // TCJ_DOCUMENTS — try multiple key formats
+          const tcjFields = ['COMP_CODE','CAJO_NUMBER','FISC_YEAR','DOC_NO','DOC_DATE','PSTNG_DATE','BUS_TRANSACT','BUS_ACT_GRP','CURRENCY','TOTAL_AMOUNT','NET_AMOUNT','TAX_AMOUNT','RECEIPT_NUM','CJ_DOC_STATUS','ACC_DOCUMENT','CREATED_BY','CREATED_ON','CHANGED_BY','CHANGED_ON','TEXT','ALLOC_NMBR'];
+          const tcjQueries = [
+            `DOC_NO EQ '${docNum}'`,
+            `ACC_DOCUMENT EQ '${docNum}'`,
+            `RECEIPT_NUM EQ '${objectId}'`,
+          ];
+          let docRows = [];
           try {
-            const docRows = await fetchViaSoapRfc('TCJ_DOCUMENTS',
-              ['COMP_CODE','CAJO_NUMBER','FISC_YEAR','DOC_NO','DOC_DATE','PSTNG_DATE','BUS_TRANSACT','BUS_ACT_GRP','CURRENCY','TOTAL_AMOUNT','NET_AMOUNT','TAX_AMOUNT','RECEIPT_NUM','CJ_DOC_STATUS','ACC_DOCUMENT','CREATED_BY','CREATED_ON','CHANGED_BY','CHANGED_ON','TEXT','ALLOC_NMBR'],
-              [`DOC_NO EQ '${docNum}'`],
-              sys.base_url, client, auth
-            );
+            for (const q of tcjQueries) {
+              console.log('[ProofForge] TCJ_DOCUMENTS try:', q);
+              docRows = await fetchViaSoapRfc('TCJ_DOCUMENTS', tcjFields, [q], sys.base_url, client, auth);
+              if (docRows.length > 0) break;
+            }
             console.log('[ProofForge] TCJ_DOCUMENTS rows:', docRows.length);
 
             if (docRows.length > 0) {
@@ -240,11 +247,12 @@ export default function RunExecute() {
             }
           } catch (e) { console.log('[ProofForge] TCJ_DOCUMENTS:', e.message); }
 
-          // TCJ_POSITIONS — cash journal line items
+          // TCJ_POSITIONS — use DOC_NO from found TCJ_DOCUMENTS header
+          const posDocNo = docRows.length > 0 ? docRows[0].DOC_NO : docNum;
           try {
             const posRows = await fetchViaSoapRfc('TCJ_POSITIONS',
               ['COMP_CODE','CAJO_NUMBER','FISC_YEAR','DOC_NO','ITEM_NO','GL_ACCOUNT','AMOUNT_LC','AMOUNT_TC','CURRENCY','CUSTOMER','VENDOR','PROFIT_CTR','COST_CENTER','ORDERID','SALES_ORD','S_ORD_ITEM','BUS_AREA','FUND_CTR','FUND','FUNC_AREA','TAX_CODE','TEXT','ALLOC_NMBR'],
-              [`DOC_NO EQ '${docNum}'`],
+              [`DOC_NO EQ '${posDocNo}'`],
               sys.base_url, client, auth
             );
             console.log('[ProofForge] TCJ_POSITIONS rows:', posRows.length);
@@ -270,7 +278,7 @@ export default function RunExecute() {
           try {
             const wtaxRows = await fetchViaSoapRfc('TCJ_WTAX_ITEMS',
               ['COMP_CODE','CAJO_NUMBER','FISC_YEAR','DOC_NO','ITEM_NO','WTAX_TYPE','WTAX_CODE','WTAX_BASE','WTAX_AMOUNT','CURRENCY'],
-              [`DOC_NO EQ '${docNum}'`],
+              [`DOC_NO EQ '${posDocNo}'`],
               sys.base_url, client, auth
             );
             console.log('[ProofForge] TCJ_WTAX_ITEMS rows:', wtaxRows.length);
@@ -412,7 +420,15 @@ export default function RunExecute() {
     const parser = new DOMParser();
     const doc = parser.parseFromString(xml, 'text/xml');
     const faultNode = doc.querySelector('faultstring');
-    if (faultNode) throw new Error(`SAP RFC error: ${faultNode.textContent}`);
+    if (faultNode) {
+      const faultText = faultNode.textContent;
+      // TABLE_WITHOUT_DATA is normal — just means 0 rows, not an error
+      if (faultText === 'TABLE_WITHOUT_DATA' || faultText === 'NOT_AUTHORIZED') {
+        console.log(`[ProofForge] RFC: ${faultText} for ${table} — returning empty`);
+        return [];
+      }
+      throw new Error(`SAP RFC error: ${faultText}`);
+    }
 
     // Parse — robust for all SAP versions
     // Collect FIELDNAME from any parent (FIELDS, ET_FIELDINFO, etc.)
