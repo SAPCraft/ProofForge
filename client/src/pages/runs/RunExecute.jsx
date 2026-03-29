@@ -18,7 +18,8 @@ export default function RunExecute() {
   const [sapDocType, setSapDocType] = useState('Cash Document');
   const [sapDocNum, setSapDocNum] = useState('');
   const [pastedImages, setPastedImages] = useState([]);
-  const [sapDocs, setSapDocs] = useState({});   // { 'FI Document_123': { items, loading, error } }
+  const [sapDocs, setSapDocs] = useState({});
+  const [sapSystems, setSapSystems] = useState([]);
   const fileRef = useRef(null);
 
   const load = async () => {
@@ -43,7 +44,7 @@ export default function RunExecute() {
     const d = await api.get(`/defects?run_id=${id}`);
     setDefects(d);
   };
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { load(); api.get('/systems').then(setSapSystems); }, [id]);
 
   if (!run) return <div className="loading">Loading...</div>;
 
@@ -320,44 +321,30 @@ export default function RunExecute() {
         </div>
       </div>
 
-      {/* SAP System Config */}
+      {/* SAP System Selector */}
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center', padding: '10px 16px', background: '#f0f4ff', border: '1px solid #d0d9f0', borderRadius: '6px', marginBottom: '12px', fontSize: '12px' }}>
         <span style={{ fontWeight: 600, color: '#4c6fff', whiteSpace: 'nowrap' }}>SAP System:</span>
-        <input
-          placeholder="https://host:port"
-          value={run.sap_system?.base_url || ''}
-          onChange={(e) => handleUpdateSapSystem('base_url', e.target.value)}
-          onBlur={(e) => handleUpdateSapSystem('base_url', e.target.value)}
-          style={{ width: '300px', fontSize: '11px', fontFamily: 'monospace' }}
-        />
-        <span style={{ color: '#6b7280' }}>Client:</span>
-        <input
-          placeholder="220"
-          value={run.sap_system?.client || ''}
-          onChange={(e) => handleUpdateSapSystem('client', e.target.value)}
-          style={{ width: '60px', fontSize: '11px', textAlign: 'center' }}
-        />
-        <span style={{ color: '#6b7280' }}>Lang:</span>
-        <input
-          placeholder="EN"
-          value={run.sap_system?.language || ''}
-          onChange={(e) => handleUpdateSapSystem('language', e.target.value)}
-          style={{ width: '40px', fontSize: '11px', textAlign: 'center' }}
-        />
-        <span style={{ color: '#6b7280', marginLeft: '8px' }}>User:</span>
-        <input
-          placeholder="SAP user"
-          value={run.sap_system?.user || ''}
-          onChange={(e) => handleUpdateSapSystem('user', e.target.value)}
-          style={{ width: '100px', fontSize: '11px' }}
-        />
-        <input
-          type="password"
-          placeholder="password"
-          value={run.sap_system?.password || ''}
-          onChange={(e) => handleUpdateSapSystem('password', e.target.value)}
-          style={{ width: '90px', fontSize: '11px' }}
-        />
+        <select
+          value={run.sap_system?.system_id || ''}
+          onChange={async (e) => {
+            const sysId = Number(e.target.value);
+            if (!sysId) { await api.put(`/runs/${id}`, { sap_system: null }); load(); return; }
+            const full = await api.get(`/systems/${sysId}/credentials`);
+            await api.put(`/runs/${id}`, { sap_system: { system_id: sysId, ...full } });
+            load();
+          }}
+          style={{ width: '250px', fontSize: '12px' }}
+        >
+          <option value="">— Select system —</option>
+          {sapSystems.map((s) => (
+            <option key={s.id} value={s.id}>{s.name} (Client {s.client})</option>
+          ))}
+        </select>
+        {run.sap_system?.base_url && (
+          <span style={{ fontSize: '11px', color: '#6b7280', fontFamily: 'monospace' }}>
+            {run.sap_system.base_url} · Client {run.sap_system.client}
+          </span>
+        )}
         {buildFlpHomeUrl() && (
           <a href={buildFlpHomeUrl()} target="_blank" rel="noopener" className="btn btn-sm btn-primary" style={{ marginLeft: 'auto', textDecoration: 'none' }}>
             Open Fiori Launchpad

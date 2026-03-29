@@ -11,6 +11,7 @@ import RunList from './pages/runs/RunList.jsx';
 import RunExecute from './pages/runs/RunExecute.jsx';
 import DefectList from './pages/defects/DefectList.jsx';
 import DefectDetail from './pages/defects/DefectDetail.jsx';
+import Settings from './pages/settings/Settings.jsx';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="runs/:id" element={<RunExecute />} />
         <Route path="defects" element={<DefectList />} />
         <Route path="defects/:id" element={<DefectDetail />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
   );

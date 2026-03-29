@@ -12,6 +12,7 @@ import runRoutes from './routes/runs.js';
 import defectRoutes from './routes/defects.js';
 import attachmentRoutes from './routes/attachments.js';
 import sapRoutes from './routes/sap.js';
+import systemRoutes from './routes/systems.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -29,6 +30,7 @@ app.use('/api/runs', authMiddleware, runRoutes);
 app.use('/api/defects', authMiddleware, defectRoutes);
 app.use('/api/attachments', authMiddleware, attachmentRoutes);
 app.use('/api/sap', authMiddleware, sapRoutes);
+app.use('/api/systems', authMiddleware, systemRoutes);
 
 // Serve static frontend
 const publicDir = path.join(__dirname, '../public');
