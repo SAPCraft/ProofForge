@@ -80,6 +80,22 @@ export default function RunExecute() {
     setPastedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleDeleteAttempt = async (stepId, attemptNum) => {
+    if (!confirm(`Delete attempt #${attemptNum}?`)) return;
+    const stepExec = getStepExec(stepId);
+    const remaining = stepExec.attempts.filter((a) => a.attempt_number !== attemptNum);
+    const updatedStepExecs = run.step_executions.map((se) => {
+      if (se.step_id !== stepId) return se;
+      return {
+        ...se,
+        attempts: remaining,
+        current_status: remaining.length > 0 ? remaining[remaining.length - 1].status : 'not_started',
+      };
+    });
+    await api.put(`/runs/${id}`, { step_executions: updatedStepExecs });
+    load();
+  };
+
   const handleAddSapObject = async (stepId) => {
     if (!sapDocNum.trim()) return;
     const stepExec = getStepExec(stepId);
@@ -329,6 +345,12 @@ export default function RunExecute() {
                           <span className="attempt-time">
                             {att.started_at && new Date(att.started_at).toLocaleString()}
                           </span>
+                          <button
+                            className="btn-icon"
+                            onClick={() => handleDeleteAttempt(activeStep, att.attempt_number)}
+                            title="Delete attempt"
+                            style={{ marginLeft: 'auto', fontSize: '14px' }}
+                          >×</button>
                         </div>
                         {att.comment && <p className="attempt-comment">{att.comment}</p>}
 
