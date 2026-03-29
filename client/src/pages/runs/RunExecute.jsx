@@ -118,10 +118,14 @@ export default function RunExecute() {
       // OData failed — try RFC_READ_TABLE via SOAP
       console.log('[ProofForge] OData services failed. Trying RFC_READ_TABLE via SOAP...');
       try {
+        // Pad document number to 10 chars (SAP BELNR is CHAR 10)
+        const docNum = objectId.padStart(10, '0');
+        console.log('[ProofForge] Document number padded:', objectId, '->', docNum);
+
         // Fetch document header (BKPF)
         const headerRows = await fetchViaSoapRfc('BKPF',
           ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
-          [`BELNR EQ '${objectId}'`],
+          [`BELNR EQ '${docNum}'`],
           sys.base_url, client, auth
         );
         console.log('[ProofForge] BKPF rows:', headerRows.length);
@@ -133,7 +137,7 @@ export default function RunExecute() {
           const bukrs = headerRows[0].BUKRS;
           lineRows = await fetchViaSoapRfc('BSEG',
             ['BUZEI','BSCHL','HKONT','DMBTR','WRBTR','SHKZG','SGTXT','PRCTR','KOSTL','KUNNR','LIFNR','ZUONR'],
-            [`BELNR EQ '${objectId}' AND GJAHR EQ '${gjahr}' AND BUKRS EQ '${bukrs}'`],
+            [`BELNR EQ '${docNum}' AND GJAHR EQ '${gjahr}' AND BUKRS EQ '${bukrs}'`],
             sys.base_url, client, auth
           );
           console.log('[ProofForge] BSEG rows:', lineRows.length);
