@@ -90,35 +90,37 @@ export default function RunExecute() {
       // Save to our DB permanently
       await saveSapPayload(objectType, objectId, result);
     } catch (err) {
-      // Fallback: try direct fetch from browser (client on VPN)
+      // Fallback: try local proxy on localhost:8585 (runs on Windows with VPN)
       console.log('[ProofForge] Server fetch failed:', err.message);
-      console.log('[ProofForge] Trying direct browser fetch to SAP...');
+      console.log('[ProofForge] Trying local proxy at localhost:8585...');
       try {
         const client = sys.client || '000';
-        const odataUrl = `${sys.base_url}/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
-        console.log('[ProofForge] OData URL:', odataUrl);
-        console.log('[ProofForge] User:', sys.user);
+        const odataPath = `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
+        const proxyUrl = `http://localhost:8585${odataPath}`;
+        console.log('[ProofForge] Proxy URL:', proxyUrl);
         const auth = btoa(`${sys.user}:${sys.password}`);
-        const res2 = await fetch(odataUrl, {
-          headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' },
-          credentials: 'omit',
+        const res2 = await fetch(proxyUrl, {
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Accept': 'application/json',
+            'X-SAP-Target': sys.base_url,
+          },
         });
-        console.log('[ProofForge] SAP response status:', res2.status);
+        console.log('[ProofForge] Proxy response status:', res2.status);
         if (!res2.ok) {
           const errText = await res2.text();
-          console.log('[ProofForge] SAP error body:', errText.slice(0, 500));
-          throw new Error(`SAP ${res2.status}: ${errText.slice(0, 100)}`);
+          console.log('[ProofForge] Proxy error:', errText.slice(0, 500));
+          throw new Error(`Proxy ${res2.status}: ${errText.slice(0, 100)}`);
         }
         const data2 = await res2.json();
-        console.log('[ProofForge] SAP data received, results:', data2?.d?.results?.length || 0);
+        console.log('[ProofForge] SAP data via proxy, results:', data2?.d?.results?.length || 0);
         const items = data2?.d?.results || [];
         const result = { items, fetched_at: new Date().toISOString() };
         setSapDocs((prev) => ({ ...prev, [key]: result }));
         await saveSapPayload(objectType, objectId, result);
       } catch (err2) {
-        console.error('[ProofForge] Direct fetch also failed:', err2.message);
-        console.error('[ProofForge] This is likely CORS. Solutions: 1) Disable CORS in SAP SICF, 2) Use browser extension, 3) Set up VPN on VPS');
-        setSapDocs((prev) => ({ ...prev, [key]: { error: `Server: ${err.message}. Browser: ${err2.message}` } }));
+        console.error('[ProofForge] Local proxy failed:', err2.message);
+        setSapDocs((prev) => ({ ...prev, [key]: { error: `Server: ${err.message}. Local proxy: ${err2.message}. Run "node proxy.mjs" on this machine.` } }));
       }
     }
   };
