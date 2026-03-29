@@ -359,10 +359,19 @@ export default function RunExecute() {
                           <div className="sap-objects">
                             <label>SAP Objects</label>
                             {att.sap_objects.map((obj, i) => (
-                              <div key={i} className="sap-object">
+                              <div key={i} className="sap-object" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span className="sap-type">{obj.object_type}</span>
                                 <span className="sap-id">{obj.object_id || obj.object_number}</span>
                                 {obj.source_system && <span className="sap-sys">{obj.source_system}</span>}
+                                <button
+                                  className="btn-icon"
+                                  style={{ fontSize: '12px', padding: '0 4px', marginLeft: '4px' }}
+                                  title="Remove"
+                                  onClick={() => {
+                                    const updated = att.sap_objects.filter((_, idx) => idx !== i);
+                                    handleUpdateAttempt(activeStep, att.attempt_number, { sap_objects: updated });
+                                  }}
+                                >×</button>
                               </div>
                             ))}
                           </div>
