@@ -218,7 +218,15 @@ export default function RunExecute() {
           } catch (e) { console.log('[ProofForge] TCJD skip:', e.message); }
         }
 
-        // If BKPF was empty but ACDOCA has data, build items from ACDOCA
+        // If BKPF was empty but ACDOCA has data, build header and items from ACDOCA
+        if (!result.header && result.acdoca.length > 0) {
+          const a0 = result.acdoca[0];
+          result.header = {
+            CompanyCode: a0.RBUKRS, AccountingDocument: objectId,
+            FiscalYear: a0.GJAHR, TransactionCurrency: a0.RHCUR,
+          };
+          result.service = 'RFC (ACDOCA)';
+        }
         if (result.items.length === 0 && result.acdoca.length > 0) {
           result.items = result.acdoca.map(r => ({
             AccountingDocumentItem: r.BUZEI || r.DOCLN, GLAccount: r.RACCT,
@@ -227,11 +235,10 @@ export default function RunExecute() {
             TransactionCurrency: r.RHCUR, Customer: r.KUNNR, Supplier: r.LIFNR,
             ProfitCenter: r.PRCTR, CostCenter: r.KOSTL,
           }));
-          result.header = result.header || {
-            CompanyCode: result.acdoca[0].RBUKRS, AccountingDocument: objectId,
-            FiscalYear: result.acdoca[0].GJAHR,
-          };
-          result.service = 'RFC (ACDOCA)';
+        }
+        // For Cash Documents, if we got cashJournal header, merge into result.header
+        if (result.cashJournal && result.header) {
+          result.header.DocumentHeaderText = result.cashJournal.BusinessTransaction;
         }
 
         if (result.items.length === 0) throw new Error('Document not found in BKPF/BSEG or ACDOCA');
@@ -415,6 +422,18 @@ export default function RunExecute() {
     { key: 'BaselineDate', label: 'Baseline', isDate: true },
   ];
 
+  // Cash Document: single summary view (no debit/credit columns)
+  const CASH_DOC_LINE_FIELDS = [
+    { key: 'AccountingDocumentItem', label: 'Itm' },
+    { key: 'PostingKey', label: 'PK' },
+    { key: 'GLAccount', label: 'G/L Account' },
+    { key: 'AmountInCompanyCodeCurrency', label: 'Amount', align: 'right', isAmount: true },
+    { key: 'ProfitCenter', label: 'Profit Ctr' },
+    { key: 'CostCenter', label: 'Cost Ctr' },
+    { key: 'AssignmentReference', label: 'Assignment' },
+    { key: 'ItemText', label: 'Text' },
+  ];
+
   // ACDOCA columns
   const ACDOCA_FIELDS = [
     { key: 'RLDNR', label: 'Ledger' },
@@ -458,10 +477,9 @@ export default function RunExecute() {
 
   const renderTable = (items, fields) => {
     const visibleFields = fields.filter(f => items.some(it => it[f.key]));
-    let totalDebit = 0, totalCredit = 0;
-    items.forEach(it => {
-      totalDebit += parseFloat(it.DebitAmountInTransCrcy || 0);
-      totalCredit += parseFloat(it.CreditAmountInTransCrcy || 0);
+    const totals = {};
+    fields.filter(f => f.isAmount).forEach(f => {
+      totals[f.key] = items.reduce((s, it) => s + parseFloat(it[f.key] || 0), 0);
     });
     return (
       <div style={{ overflow: 'auto' }}>
@@ -484,14 +502,13 @@ export default function RunExecute() {
               </tr>
             ))}
           </tbody>
-          {(totalDebit > 0 || totalCredit > 0) && (
+          {Object.values(totals).some(v => v > 0) && (
             <tfoot>
               <tr style={{ background: '#edf2f7', fontWeight: 700 }}>
                 {visibleFields.map(f => (
                   <td key={f.key} style={{ padding: '4px 6px', textAlign: f.align || 'left', borderTop: '2px solid #cbd5e0', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
-                    {f.key === 'DebitAmountInTransCrcy' ? fmtAmt(totalDebit) : ''}
-                    {f.key === 'CreditAmountInTransCrcy' ? fmtAmt(totalCredit) : ''}
-                    {f.key === 'AccountingDocumentItem' || f.key === 'DOCLN' ? `${items.length}` : ''}
+                    {f.isAmount && totals[f.key] ? fmtAmt(totals[f.key]) : ''}
+                    {(f.key === 'AccountingDocumentItem' || f.key === 'DOCLN') ? `${items.length}` : ''}
                   </td>
                 ))}
               </tr>
@@ -542,7 +559,7 @@ export default function RunExecute() {
         <div style={{ borderBottom: '1px solid #e2e5e9' }} />
 
         {/* Line Items */}
-        {renderTable(docData.items, LINE_ITEM_FIELDS)}
+        {renderTable(docData.items, objectType === 'Cash Document' ? CASH_DOC_LINE_FIELDS : LINE_ITEM_FIELDS)}
 
         {/* ACDOCA Registers — collapsible */}
         {docData.acdoca?.length > 0 && (
