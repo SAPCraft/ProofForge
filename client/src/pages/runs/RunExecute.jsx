@@ -329,27 +329,111 @@ export default function RunExecute() {
     });
   };
 
-  // Key fields to show for FI document line items
-  const FI_DISPLAY_FIELDS = [
-    { key: 'CompanyCode', label: 'CoCd' },
-    { key: 'AccountingDocumentItem', label: 'Item' },
-    { key: 'GLAccount', label: 'G/L Account' },
-    { key: 'GLAccountName', label: 'Account Name' },
-    { key: 'DebitAmountInTransCrcy', label: 'Debit' },
-    { key: 'CreditAmountInTransCrcy', label: 'Credit' },
-    { key: 'TransactionCurrency', label: 'Currency' },
-    { key: 'Customer', label: 'Customer' },
-    { key: 'Supplier', label: 'Supplier' },
-    { key: 'ProfitCenter', label: 'Profit Center' },
-    { key: 'CostCenter', label: 'Cost Center' },
-    { key: 'PostingKey', label: 'PK' },
+  // FB03-style header fields (shown as key-value grid above line items)
+  const DOC_HEADER_FIELDS = [
+    { key: 'CompanyCode', label: 'Company Code' },
+    { key: 'AccountingDocumentType', label: 'Document Type' },
     { key: 'PostingDate', label: 'Posting Date' },
-    { key: 'DocumentDate', label: 'Doc Date' },
-    { key: 'AccountingDocumentType', label: 'Doc Type' },
-    { key: 'ItemText', label: 'Text' },
-    { key: 'AssignmentReference', label: 'Assignment' },
+    { key: 'DocumentDate', label: 'Document Date' },
+    { key: 'TransactionCurrency', label: 'Currency' },
     { key: 'DocumentHeaderText', label: 'Header Text' },
+    { key: 'FiscalYear', label: 'Fiscal Year' },
   ];
+
+  // Line item columns (table below header)
+  const LINE_ITEM_FIELDS = [
+    { key: 'AccountingDocumentItem', label: 'Itm', width: '35px' },
+    { key: 'PostingKey', label: 'PK', width: '30px' },
+    { key: 'GLAccount', label: 'G/L Account', width: '100px' },
+    { key: 'Customer', label: 'Customer', width: '90px' },
+    { key: 'Supplier', label: 'Supplier', width: '90px' },
+    { key: 'DebitAmountInTransCrcy', label: 'Debit', width: '90px', align: 'right', isAmount: true },
+    { key: 'CreditAmountInTransCrcy', label: 'Credit', width: '90px', align: 'right', isAmount: true },
+    { key: 'ProfitCenter', label: 'Profit Ctr', width: '90px' },
+    { key: 'CostCenter', label: 'Cost Ctr', width: '80px' },
+    { key: 'AssignmentReference', label: 'Assignment', width: '90px' },
+    { key: 'ItemText', label: 'Text', width: '120px' },
+  ];
+
+  // Format SAP date YYYYMMDD → DD.MM.YYYY
+  const fmtDate = (d) => d && d.length === 8 ? `${d.slice(6,8)}.${d.slice(4,6)}.${d.slice(0,4)}` : d || '';
+  // Format amount with thousands separator
+  const fmtAmt = (v) => { if (!v || v === '0' || v === '0.00') return ''; const n = parseFloat(v); return isNaN(n) ? v : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+
+  const renderDocumentFB03 = (docData, objectType) => {
+    if (!docData?.items || docData.items.length === 0) {
+      return <div style={{ padding: '10px', color: '#6b7280', fontSize: '12px' }}>No data returned from SAP</div>;
+    }
+    const items = docData.items;
+    const hdr = items[0]; // header data from first line
+
+    // Calculate totals
+    let totalDebit = 0, totalCredit = 0;
+    items.forEach(it => {
+      totalDebit += parseFloat(it.DebitAmountInTransCrcy || 0);
+      totalCredit += parseFloat(it.CreditAmountInTransCrcy || 0);
+    });
+
+    return (
+      <div style={{ fontSize: '12px' }}>
+        {/* Document Header — FB03 style grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '2px 16px', padding: '8px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e5e9' }}>
+          {DOC_HEADER_FIELDS.map(f => {
+            let val = hdr[f.key] || '';
+            if (f.key.includes('Date')) val = fmtDate(val);
+            if (!val) return null;
+            return (
+              <div key={f.key} style={{ display: 'flex', gap: '6px', padding: '1px 0' }}>
+                <span style={{ color: '#6b7280', fontWeight: 500, minWidth: '100px', fontSize: '11px' }}>{f.label}:</span>
+                <span style={{ fontWeight: 600, fontSize: '11px' }}>{val}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Line Items Table */}
+        <div style={{ overflow: 'auto', maxHeight: '280px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+            <thead>
+              <tr style={{ background: '#edf2f7' }}>
+                {LINE_ITEM_FIELDS.filter(f => items.some(it => it[f.key])).map(f => (
+                  <th key={f.key} style={{ padding: '5px 8px', textAlign: f.align || 'left', fontWeight: 600, color: '#4a5568', whiteSpace: 'nowrap', borderBottom: '2px solid #cbd5e0', fontSize: '10px', textTransform: 'uppercase' }}>{f.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px solid #eef0f3', background: idx % 2 === 0 ? '#fff' : '#fafbfc' }}>
+                  {LINE_ITEM_FIELDS.filter(f => items.some(it => it[f.key])).map(f => (
+                    <td key={f.key} style={{ padding: '4px 8px', whiteSpace: 'nowrap', textAlign: f.align || 'left', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
+                      {f.isAmount ? fmtAmt(item[f.key]) : item[f.key] || ''}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: '#edf2f7', fontWeight: 700 }}>
+                {LINE_ITEM_FIELDS.filter(f => items.some(it => it[f.key])).map(f => (
+                  <td key={f.key} style={{ padding: '5px 8px', textAlign: f.align || 'left', borderTop: '2px solid #cbd5e0', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
+                    {f.key === 'DebitAmountInTransCrcy' ? fmtAmt(totalDebit) : ''}
+                    {f.key === 'CreditAmountInTransCrcy' ? fmtAmt(totalCredit) : ''}
+                    {f.key === 'AccountingDocumentItem' ? `${items.length} items` : ''}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '4px 12px', fontSize: '10px', color: '#9ca3af', borderTop: '1px solid #eef0f3', display: 'flex', gap: '12px' }}>
+          <span>Fetched {new Date(docData.fetched_at).toLocaleString()}</span>
+          {docData.service && <span>via {docData.service}</span>}
+        </div>
+      </div>
+    );
+  };
 
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
@@ -700,34 +784,8 @@ export default function RunExecute() {
                                     </div>
                                   )}
                                   {docData?.items && (
-                                    <div style={{ padding: '0', overflow: 'auto', maxHeight: '300px' }}>
-                                      {docData.items.length === 0 ? (
-                                        <div style={{ padding: '10px', color: '#6b7280', fontSize: '12px' }}>No data returned from SAP</div>
-                                      ) : (
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-                                          <thead>
-                                            <tr style={{ background: '#f0f2f5', position: 'sticky', top: 0 }}>
-                                              {FI_DISPLAY_FIELDS.filter((f) => docData.items.some((item) => item[f.key])).map((f) => (
-                                                <th key={f.key} style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 600, color: '#4a5568', whiteSpace: 'nowrap', borderBottom: '1px solid #e2e5e9' }}>{f.label}</th>
-                                              ))}
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {docData.items.map((item, idx) => (
-                                              <tr key={idx} style={{ borderBottom: '1px solid #eef0f3' }}>
-                                                {FI_DISPLAY_FIELDS.filter((f) => docData.items.some((it) => it[f.key])).map((f) => (
-                                                  <td key={f.key} style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>
-                                                    {f.key.includes('Amount') && item[f.key] ? Number(item[f.key]).toLocaleString() : item[f.key] || ''}
-                                                  </td>
-                                                ))}
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                        </table>
-                                      )}
-                                      <div style={{ padding: '4px 10px', fontSize: '10px', color: '#9ca3af', borderTop: '1px solid #eef0f3' }}>
-                                        Fetched {new Date(docData.fetched_at).toLocaleString()} · {docData.items.length} line items
-                                      </div>
+                                    <div>
+                                      {renderDocumentFB03(docData, obj.object_type)}
                                     </div>
                                   )}
                                 </div>
