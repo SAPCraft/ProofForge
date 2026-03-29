@@ -20,6 +20,7 @@ export default function RunExecute() {
   const [pastedImages, setPastedImages] = useState([]);
   const [sapDocs, setSapDocs] = useState({});
   const [sapSystems, setSapSystems] = useState([]);
+  const [expandedAcdoca, setExpandedAcdoca] = useState({});
   const fileRef = useRef(null);
 
   const load = async () => {
@@ -437,8 +438,6 @@ export default function RunExecute() {
   const fmtAmt = (v) => { if (!v || v === '0' || v === '0.00') return ''; const n = parseFloat(v); return isNaN(n) ? v : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   // Strip leading zeros from pure-numeric strings: 0001012001 → 1012001, 0000002122 → 2122
   const stripZeros = (v) => { if (!v) return ''; return /^\d+$/.test(v) ? v.replace(/^0+/, '') || '0' : v; };
-
-  const [expandedAcdoca, setExpandedAcdoca] = useState({});
 
   const renderHeaderGrid = (hdr, fields) => (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1px 12px', padding: '6px 12px', background: '#f8fafc' }}>
