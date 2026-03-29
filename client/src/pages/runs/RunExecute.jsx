@@ -66,66 +66,63 @@ export default function RunExecute() {
     setSapDocs((prev) => ({ ...prev, [key]: { loading: true } }));
     const sys = run.sap_system;
     if (!sys?.base_url || !sys?.user || !sys?.password) {
-      setSapDocs((prev) => ({ ...prev, [key]: { error: 'SAP credentials not configured' } }));
+      setSapDocs((prev) => ({ ...prev, [key]: { error: 'SAP credentials not configured. Go to Settings → SAP Systems.' } }));
       return;
     }
-    try {
-      // Try server-side proxy first (works if VPS has access), then client-side
-      const res = await fetch('/api/sap/fetch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('pf_token')}`,
-        },
-        body: JSON.stringify({
-          sap_system: sys,
-          object_type: objectType,
-          object_id: objectId,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      const result = { items: data.items, fiori_link: data.fiori_link, fetched_at: data.fetched_at };
-      setSapDocs((prev) => ({ ...prev, [key]: result }));
-      // Save to our DB permanently
-      await saveSapPayload(objectType, objectId, result);
-    } catch (err) {
-      // Fallback: if on localhost (local proxy), send SAP request through same origin
-      console.log('[ProofForge] Server fetch failed:', err.message);
-      const isLocalProxy = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      if (isLocalProxy) {
-        console.log('[ProofForge] On local proxy — routing SAP request through same origin...');
-        try {
-          const client = sys.client || '000';
-          const odataPath = `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
-          console.log('[ProofForge] SAP path:', odataPath);
-          const auth = btoa(`${sys.user}:${sys.password}`);
-          const res2 = await fetch(odataPath, {
-            headers: {
-              'Authorization': `Basic ${auth}`,
-              'Accept': 'application/json',
-              'X-SAP-Target': sys.base_url,
-            },
-          });
-          console.log('[ProofForge] Proxy response:', res2.status);
-          if (!res2.ok) {
-            const errText = await res2.text();
-            console.log('[ProofForge] SAP error:', errText.slice(0, 500));
-            throw new Error(`SAP ${res2.status}: ${errText.slice(0, 100)}`);
-          }
-          const data2 = await res2.json();
-          console.log('[ProofForge] SAP data received, items:', data2?.d?.results?.length || 0);
-          const items = data2?.d?.results || [];
-          const result = { items, fetched_at: new Date().toISOString() };
-          setSapDocs((prev) => ({ ...prev, [key]: result }));
-          await saveSapPayload(objectType, objectId, result);
-        } catch (err2) {
-          console.error('[ProofForge] SAP via proxy failed:', err2.message);
-          setSapDocs((prev) => ({ ...prev, [key]: { error: `Server: ${err.message}. Proxy: ${err2.message}` } }));
+
+    const isLocalProxy = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const client = sys.client || '000';
+    const odataPath = `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
+    const auth = btoa(`${sys.user}:${sys.password}`);
+
+    if (isLocalProxy) {
+      // On local proxy: send SAP request directly through same origin
+      console.log('[ProofForge] Local proxy mode — fetching SAP via same origin');
+      console.log('[ProofForge] SAP target:', sys.base_url, 'Path:', odataPath);
+      try {
+        const res = await fetch(odataPath, {
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Accept': 'application/json',
+            'X-SAP-Target': sys.base_url,
+          },
+        });
+        console.log('[ProofForge] SAP response:', res.status);
+        if (!res.ok) {
+          const errText = await res.text();
+          console.log('[ProofForge] SAP error:', errText.slice(0, 500));
+          throw new Error(`SAP ${res.status}: ${errText.slice(0, 200)}`);
         }
-      } else {
-        console.error('[ProofForge] Open ProofForge via http://localhost:8585 to use SAP fetch through local proxy');
-        setSapDocs((prev) => ({ ...prev, [key]: { error: `${err.message}. To fetch SAP data, open ProofForge at http://localhost:8585 (with proxy running).` } }));
+        const data = await res.json();
+        console.log('[ProofForge] SAP items:', data?.d?.results?.length || 0);
+        const items = data?.d?.results || [];
+        const result = { items, fetched_at: new Date().toISOString() };
+        setSapDocs((prev) => ({ ...prev, [key]: result }));
+        await saveSapPayload(objectType, objectId, result);
+      } catch (err) {
+        console.error('[ProofForge] SAP fetch error:', err.message);
+        setSapDocs((prev) => ({ ...prev, [key]: { error: err.message } }));
+      }
+    } else {
+      // On VPS: try server-side fetch
+      console.log('[ProofForge] Remote mode — trying server-side SAP fetch');
+      try {
+        const res = await fetch('/api/sap/fetch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('pf_token')}`,
+          },
+          body: JSON.stringify({ sap_system: sys, object_type: objectType, object_id: objectId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        const result = { items: data.items, fiori_link: data.fiori_link, fetched_at: data.fetched_at };
+        setSapDocs((prev) => ({ ...prev, [key]: result }));
+        await saveSapPayload(objectType, objectId, result);
+      } catch (err) {
+        console.error('[ProofForge] Server fetch failed:', err.message);
+        setSapDocs((prev) => ({ ...prev, [key]: { error: `${err.message}. Open ProofForge via http://localhost:8585 with local proxy running.` } }));
       }
     }
   };
