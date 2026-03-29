@@ -70,6 +70,10 @@ router.post('/fetch', async (req, res) => {
     ? template.path(object_id, company_code, fiscal_year)
     : `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${object_id}'&$top=50`;
 
+  const fullUrl = `${sap_system.base_url}${odataPath}${odataPath.includes('?') ? '&' : '?'}sap-client=${sap_system.client || '000'}&$format=json`;
+  console.log(`[SAP] Fetching: ${fullUrl}`);
+  console.log(`[SAP] User: ${sap_system.user}, Type: ${object_type}, ID: ${object_id}`);
+
   try {
     const data = await sapFetch(
       sap_system.base_url,
@@ -80,6 +84,7 @@ router.post('/fetch', async (req, res) => {
     );
 
     const results = data?.d?.results || data?.value || [];
+    console.log(`[SAP] Success: ${results.length} items returned`);
 
     // Build Fiori link
     let fiori_link = null;
@@ -96,6 +101,7 @@ router.post('/fetch', async (req, res) => {
       fetched_at: new Date().toISOString(),
     });
   } catch (err) {
+    console.error(`[SAP] Fetch failed: ${err.message}`);
     res.status(502).json({ error: `SAP fetch failed: ${err.message}` });
   }
 });

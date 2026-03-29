@@ -91,22 +91,34 @@ export default function RunExecute() {
       await saveSapPayload(objectType, objectId, result);
     } catch (err) {
       // Fallback: try direct fetch from browser (client on VPN)
+      console.log('[ProofForge] Server fetch failed:', err.message);
+      console.log('[ProofForge] Trying direct browser fetch to SAP...');
       try {
         const client = sys.client || '000';
         const odataUrl = `${sys.base_url}/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
+        console.log('[ProofForge] OData URL:', odataUrl);
+        console.log('[ProofForge] User:', sys.user);
         const auth = btoa(`${sys.user}:${sys.password}`);
         const res2 = await fetch(odataUrl, {
           headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' },
+          credentials: 'omit',
         });
-        if (!res2.ok) throw new Error(`SAP ${res2.status}`);
+        console.log('[ProofForge] SAP response status:', res2.status);
+        if (!res2.ok) {
+          const errText = await res2.text();
+          console.log('[ProofForge] SAP error body:', errText.slice(0, 500));
+          throw new Error(`SAP ${res2.status}: ${errText.slice(0, 100)}`);
+        }
         const data2 = await res2.json();
+        console.log('[ProofForge] SAP data received, results:', data2?.d?.results?.length || 0);
         const items = data2?.d?.results || [];
         const result = { items, fetched_at: new Date().toISOString() };
         setSapDocs((prev) => ({ ...prev, [key]: result }));
-        // Save to our DB permanently
         await saveSapPayload(objectType, objectId, result);
       } catch (err2) {
-        setSapDocs((prev) => ({ ...prev, [key]: { error: `${err.message}. Direct: ${err2.message}` } }));
+        console.error('[ProofForge] Direct fetch also failed:', err2.message);
+        console.error('[ProofForge] This is likely CORS. Solutions: 1) Disable CORS in SAP SICF, 2) Use browser extension, 3) Set up VPN on VPS');
+        setSapDocs((prev) => ({ ...prev, [key]: { error: `Server: ${err.message}. Browser: ${err2.message}` } }));
       }
     }
   };
