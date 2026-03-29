@@ -28,6 +28,18 @@ export default function RunExecute() {
       const firstPending = r.step_executions.find((s) => s.current_status === 'not_started' || s.current_status === 'in_progress');
       setActiveStep(firstPending?.step_id || r.step_executions[0].step_id);
     }
+    // Load saved SAP payloads into display state
+    const saved = {};
+    for (const se of (r.step_executions || [])) {
+      for (const att of (se.attempts || [])) {
+        if (att.sap_payloads) {
+          for (const [key, payload] of Object.entries(att.sap_payloads)) {
+            saved[key] = payload;
+          }
+        }
+      }
+    }
+    if (Object.keys(saved).length > 0) setSapDocs((prev) => ({ ...prev, ...saved }));
     const d = await api.get(`/defects?run_id=${id}`);
     setDefects(d);
   };
@@ -72,7 +84,10 @@ export default function RunExecute() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setSapDocs((prev) => ({ ...prev, [key]: { items: data.items, fiori_link: data.fiori_link, fetched_at: data.fetched_at } }));
+      const result = { items: data.items, fiori_link: data.fiori_link, fetched_at: data.fetched_at };
+      setSapDocs((prev) => ({ ...prev, [key]: result }));
+      // Save to our DB permanently
+      await saveSapPayload(objectType, objectId, result);
     } catch (err) {
       // Fallback: try direct fetch from browser (client on VPN)
       try {
@@ -85,11 +100,30 @@ export default function RunExecute() {
         if (!res2.ok) throw new Error(`SAP ${res2.status}`);
         const data2 = await res2.json();
         const items = data2?.d?.results || [];
-        setSapDocs((prev) => ({ ...prev, [key]: { items, fetched_at: new Date().toISOString() } }));
+        const result = { items, fetched_at: new Date().toISOString() };
+        setSapDocs((prev) => ({ ...prev, [key]: result }));
+        // Save to our DB permanently
+        await saveSapPayload(objectType, objectId, result);
       } catch (err2) {
         setSapDocs((prev) => ({ ...prev, [key]: { error: `${err.message}. Direct: ${err2.message}` } }));
       }
     }
+  };
+
+  // Save fetched SAP data permanently to the attempt
+  const saveSapPayload = async (objectType, objectId, fetchedData) => {
+    const stepExec = getStepExec(activeStep);
+    const attempt = getLatestAttempt(stepExec);
+    if (!attempt) return;
+    const payloads = { ...(attempt.sap_payloads || {}) };
+    payloads[`${objectType}_${objectId}`] = {
+      object_type: objectType,
+      object_id: objectId,
+      items: fetchedData.items,
+      fiori_link: fetchedData.fiori_link,
+      fetched_at: fetchedData.fetched_at,
+    };
+    await handleUpdateAttempt(activeStep, attempt.attempt_number, { sap_payloads: payloads });
   };
 
   const buildSapDocLink = (objectType, objectId) => {
