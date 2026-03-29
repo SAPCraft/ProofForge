@@ -122,36 +122,19 @@ export default function RunExecute() {
         const docNum = objectId.padStart(10, '0');
         console.log('[ProofForge] Document number padded:', objectId, '->', docNum);
 
-        // Fetch document header (BKPF) - try with current year first, then without
-        const currentYear = new Date().getFullYear().toString();
+        // Fetch document header (BKPF) — search by doc number only, pick latest
         let headerRows = await fetchViaSoapRfc('BKPF',
           ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
-          [`BELNR EQ '${docNum}' AND GJAHR EQ '${currentYear}'`],
+          [`BELNR EQ '${docNum}'`],
           sys.base_url, client, auth
         );
-        console.log('[ProofForge] BKPF rows (year ' + currentYear + '):', headerRows.length);
+        console.log('[ProofForge] BKPF rows:', headerRows.length);
 
-        // If not found, try previous year
-        if (headerRows.length === 0) {
-          const prevYear = (parseInt(currentYear) - 1).toString();
-          console.log('[ProofForge] Trying previous year:', prevYear);
-          headerRows = await fetchViaSoapRfc('BKPF',
-            ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
-            [`BELNR EQ '${docNum}' AND GJAHR EQ '${prevYear}'`],
-            sys.base_url, client, auth
-          );
-          console.log('[ProofForge] BKPF rows (year ' + prevYear + '):', headerRows.length);
-        }
-
-        // If still not found, try without year at all
-        if (headerRows.length === 0) {
-          console.log('[ProofForge] Trying without GJAHR filter...');
-          headerRows = await fetchViaSoapRfc('BKPF',
-            ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
-            [`BELNR EQ '${docNum}'`],
-            sys.base_url, client, auth
-          );
-          console.log('[ProofForge] BKPF rows (no year):', headerRows.length);
+        // If multiple results (same doc number in different years/companies), pick the latest
+        if (headerRows.length > 1) {
+          headerRows.sort((a, b) => (b.GJAHR || '').localeCompare(a.GJAHR || '') || (b.BUDAT || '').localeCompare(a.BUDAT || ''));
+          console.log('[ProofForge] Multiple results, picking latest: BUKRS=' + headerRows[0].BUKRS + ' GJAHR=' + headerRows[0].GJAHR);
+          headerRows = [headerRows[0]];
         }
 
         // Get fiscal year and company code from header for line items query
