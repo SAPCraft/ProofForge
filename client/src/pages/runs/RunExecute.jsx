@@ -435,6 +435,8 @@ export default function RunExecute() {
   const fmtDate = (d) => d && d.length === 8 ? `${d.slice(6,8)}.${d.slice(4,6)}.${d.slice(0,4)}` : d || '';
   // Format amount with thousands separator
   const fmtAmt = (v) => { if (!v || v === '0' || v === '0.00') return ''; const n = parseFloat(v); return isNaN(n) ? v : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  // Strip leading zeros from pure-numeric strings: 0001012001 → 1012001, 0000002122 → 2122
+  const stripZeros = (v) => { if (!v) return ''; return /^\d+$/.test(v) ? v.replace(/^0+/, '') || '0' : v; };
 
   const [expandedAcdoca, setExpandedAcdoca] = useState({});
 
@@ -443,6 +445,7 @@ export default function RunExecute() {
       {fields.map(f => {
         let val = hdr?.[f.key] || '';
         if (f.isDate) val = fmtDate(val);
+        else val = stripZeros(val);
         if (!val || val === '0' || val === '000') return null;
         return (
           <div key={f.key} style={{ display: 'flex', gap: '4px', padding: '1px 0', fontSize: '11px' }}>
@@ -476,7 +479,7 @@ export default function RunExecute() {
               <tr key={idx} style={{ borderBottom: '1px solid #eef0f3', background: idx % 2 === 0 ? '#fff' : '#fafbfc' }}>
                 {visibleFields.map(f => (
                   <td key={f.key} style={{ padding: '3px 6px', whiteSpace: 'nowrap', textAlign: f.align || 'left', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
-                    {f.isAmount ? fmtAmt(item[f.key]) : f.isDate ? fmtDate(item[f.key]) : item[f.key] || ''}
+                    {f.isAmount ? fmtAmt(item[f.key]) : f.isDate ? fmtDate(item[f.key]) : stripZeros(item[f.key])}
                   </td>
                 ))}
               </tr>
