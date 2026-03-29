@@ -286,6 +286,10 @@ export default function RunExecute() {
       object_type: objectType,
       object_id: objectId,
       items: fetchedData.items,
+      header: fetchedData.header || null,
+      acdoca: fetchedData.acdoca || [],
+      cashJournal: fetchedData.cashJournal || null,
+      service: fetchedData.service || null,
       fiori_link: fetchedData.fiori_link,
       fetched_at: fetchedData.fetched_at,
     };
