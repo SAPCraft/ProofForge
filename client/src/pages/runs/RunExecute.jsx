@@ -143,6 +143,17 @@ export default function RunExecute() {
           console.log('[ProofForge] BKPF rows (year ' + prevYear + '):', headerRows.length);
         }
 
+        // If still not found, try without year at all
+        if (headerRows.length === 0) {
+          console.log('[ProofForge] Trying without GJAHR filter...');
+          headerRows = await fetchViaSoapRfc('BKPF',
+            ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
+            [`BELNR EQ '${docNum}'`],
+            sys.base_url, client, auth
+          );
+          console.log('[ProofForge] BKPF rows (no year):', headerRows.length);
+        }
+
         // Get fiscal year and company code from header for line items query
         let lineRows = [];
         if (headerRows.length > 0) {
@@ -276,18 +287,37 @@ export default function RunExecute() {
     const faultNode = doc.querySelector('faultstring');
     if (faultNode) throw new Error(`SAP RFC error: ${faultNode.textContent}`);
 
-    // Parse with namespace-aware approach (SAP uses SOAP-ENV: prefixes)
+    // Parse — robust for all SAP versions
+    // Collect FIELDNAME from any parent (FIELDS, ET_FIELDINFO, etc.)
+    // Collect WA (data rows) from any parent (DATA, ET_DATA, TBLOUT, etc.)
     const allElements = doc.getElementsByTagName('*');
     const fieldNames = [];
     const dataWa = [];
     for (const el of allElements) {
       const ln = el.localName || el.nodeName;
       if (ln === 'FIELDNAME') fieldNames.push(el.textContent);
+      // WA can appear in DATA, ET_DATA, TBLOUT — just grab all WA tags
       if (ln === 'WA') dataWa.push(el.textContent);
+      // Some versions use LINE instead of WA
+      if (ln === 'LINE') dataWa.push(el.textContent);
     }
-    console.log('[ProofForge] Parsed fields:', fieldNames.length, fieldNames);
-    console.log('[ProofForge] Data rows (WA):', dataWa.length);
-    if (dataWa.length > 0) console.log('[ProofForge] First WA:', dataWa[0]);
+
+    // Fallback: if no WA/LINE found, search for any text containing the delimiter
+    if (dataWa.length === 0 && fieldNames.length > 0) {
+      for (const el of allElements) {
+        const txt = el.textContent;
+        if (el.children.length === 0 && txt.includes('|') && txt.split('|').length >= fieldNames.length / 2) {
+          dataWa.push(txt);
+        }
+      }
+    }
+
+    console.log('[ProofForge] Fields:', fieldNames.length, fieldNames);
+    console.log('[ProofForge] Data rows:', dataWa.length);
+    if (dataWa.length > 0) console.log('[ProofForge] First row:', dataWa[0]);
+    if (dataWa.length === 0 && fieldNames.length > 0) {
+      console.log('[ProofForge] Fields found but no data — document may not exist in this company code/year');
+    }
 
     return dataWa.map(wa => {
       const vals = wa.split('|');
