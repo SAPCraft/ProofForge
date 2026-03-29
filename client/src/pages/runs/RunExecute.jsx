@@ -115,7 +115,64 @@ export default function RunExecute() {
           lastError = err.message;
         }
       }
-      setSapDocs((prev) => ({ ...prev, [key]: { error: `No working OData service found. Last: ${lastError}` } }));
+      // OData failed — try RFC_READ_TABLE via SOAP
+      console.log('[ProofForge] OData services failed. Trying RFC_READ_TABLE via SOAP...');
+      try {
+        // Fetch document header (BKPF)
+        const headerRows = await fetchViaSoapRfc('BKPF',
+          ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
+          [`BELNR EQ '${objectId}'`],
+          sys.base_url, client, auth
+        );
+        console.log('[ProofForge] BKPF rows:', headerRows.length);
+
+        // Get fiscal year and company code from header for line items query
+        let lineRows = [];
+        if (headerRows.length > 0) {
+          const gjahr = headerRows[0].GJAHR;
+          const bukrs = headerRows[0].BUKRS;
+          lineRows = await fetchViaSoapRfc('BSEG',
+            ['BUZEI','BSCHL','HKONT','DMBTR','WRBTR','SHKZG','SGTXT','PRCTR','KOSTL','KUNNR','LIFNR','ZUONR'],
+            [`BELNR EQ '${objectId}' AND GJAHR EQ '${gjahr}' AND BUKRS EQ '${bukrs}'`],
+            sys.base_url, client, auth
+          );
+          console.log('[ProofForge] BSEG rows:', lineRows.length);
+        }
+
+        // Combine into display-friendly format
+        const items = lineRows.map(line => ({
+          CompanyCode: headerRows[0]?.BUKRS,
+          AccountingDocument: objectId,
+          FiscalYear: headerRows[0]?.GJAHR,
+          AccountingDocumentType: headerRows[0]?.BLART,
+          PostingDate: headerRows[0]?.BUDAT,
+          DocumentDate: headerRows[0]?.BLDAT,
+          TransactionCurrency: headerRows[0]?.WAERS,
+          DocumentHeaderText: headerRows[0]?.BKTXT,
+          AccountingDocumentItem: line.BUZEI,
+          PostingKey: line.BSCHL,
+          GLAccount: line.HKONT,
+          DebitAmountInTransCrcy: line.SHKZG === 'S' ? line.WRBTR : '',
+          CreditAmountInTransCrcy: line.SHKZG === 'H' ? line.WRBTR : '',
+          AmountInCompanyCodeCurrency: line.DMBTR,
+          Customer: line.KUNNR,
+          Supplier: line.LIFNR,
+          ProfitCenter: line.PRCTR,
+          CostCenter: line.KOSTL,
+          ItemText: line.SGTXT,
+          AssignmentReference: line.ZUONR,
+        }));
+
+        const result = { items, fetched_at: new Date().toISOString(), service: 'RFC_READ_TABLE (SOAP)' };
+        setSapDocs((prev) => ({ ...prev, [key]: result }));
+        await saveSapPayload(objectType, objectId, result);
+        return;
+      } catch (rfcErr) {
+        console.error('[ProofForge] SOAP RFC also failed:', rfcErr.message);
+        lastError = `OData: all 403. RFC: ${rfcErr.message}`;
+      }
+
+      setSapDocs((prev) => ({ ...prev, [key]: { error: lastError } }));
     } else {
       // On VPS: try server-side fetch
       console.log('[ProofForge] Remote mode — trying server-side SAP fetch');
@@ -167,6 +224,51 @@ export default function RunExecute() {
     return null;
   };
 
+  // RFC_READ_TABLE via SOAP — works on virtually any SAP system
+  const fetchViaSoapRfc = async (table, fields, where, sapBase, sapClient, auth) => {
+    const fieldsXml = fields.map(f => `<item><FIELDNAME>${f}</FIELDNAME></item>`).join('');
+    const whereXml = where.map(w => `<item><TEXT>${w}</TEXT></item>`).join('');
+    const soap = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:rfc="urn:sap-com:document:sap:rfc:functions">
+<soap:Body><rfc:RFC_READ_TABLE>
+<QUERY_TABLE>${table}</QUERY_TABLE><DELIMITER>|</DELIMITER>
+<OPTIONS>${whereXml}</OPTIONS>
+<FIELDS>${fieldsXml}</FIELDS>
+</rfc:RFC_READ_TABLE></soap:Body></soap:Envelope>`;
+
+    const res = await fetch(`/sap/bc/soap/rfc?sap-client=${sapClient}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'urn:sap-com:document:sap:rfc:functions:RFC_READ_TABLE',
+        'X-SAP-Target': sapBase,
+      },
+      body: soap,
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`SOAP ${res.status}: ${t.slice(0, 200)}`);
+    }
+    const xml = await res.text();
+    // Parse response: extract FIELDS and DATA
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, 'text/xml');
+    const faultNode = doc.querySelector('faultstring');
+    if (faultNode) throw new Error(`SAP RFC error: ${faultNode.textContent}`);
+
+    const fieldNodes = doc.querySelectorAll('FIELDS item FIELDNAME');
+    const fieldNames = Array.from(fieldNodes).map(n => n.textContent);
+    const dataNodes = doc.querySelectorAll('DATA item WA');
+    const rows = Array.from(dataNodes).map(n => {
+      const vals = n.textContent.split('|');
+      const row = {};
+      fieldNames.forEach((f, i) => { row[f] = (vals[i] || '').trim(); });
+      return row;
+    });
+    return rows;
+  };
+
   // Key fields to show for FI document line items
   const FI_DISPLAY_FIELDS = [
     { key: 'CompanyCode', label: 'CoCd' },
@@ -179,9 +281,14 @@ export default function RunExecute() {
     { key: 'Customer', label: 'Customer' },
     { key: 'Supplier', label: 'Supplier' },
     { key: 'ProfitCenter', label: 'Profit Center' },
+    { key: 'CostCenter', label: 'Cost Center' },
+    { key: 'PostingKey', label: 'PK' },
     { key: 'PostingDate', label: 'Posting Date' },
     { key: 'DocumentDate', label: 'Doc Date' },
     { key: 'AccountingDocumentType', label: 'Doc Type' },
+    { key: 'ItemText', label: 'Text' },
+    { key: 'AssignmentReference', label: 'Assignment' },
+    { key: 'DocumentHeaderText', label: 'Header Text' },
   ];
 
   const handlePaste = (e) => {
