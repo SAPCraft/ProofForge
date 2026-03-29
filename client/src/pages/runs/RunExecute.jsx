@@ -301,8 +301,13 @@ export default function RunExecute() {
     if (!sys?.base_url) return null;
     const client = sys.client || '000';
     const lang = sys.language || 'EN';
+    const docNum = objectId.padStart(10, '0');
     if (objectType === 'FI Document') {
-      return `${sys.base_url}/sap/bc/ui2/flp?sap-client=${client}&sap-language=${lang}#FinancialAccounting-displayJournalEntry?AccountingDocument=${objectId}`;
+      // SAP GUI for HTML — FB03 transaction
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=FB03%20RF05L-BELNR=${docNum}&sap-client=${client}&sap-language=${lang}`;
+    }
+    if (objectType === 'Cash Document') {
+      return `${sys.base_url}/sap/bc/ui2/flp?sap-client=${client}&sap-language=${lang}#CashJournal-enterCashJournalEntry?sap-ui-tech-hint=GUI`;
     }
     return null;
   };
@@ -399,6 +404,8 @@ export default function RunExecute() {
   const DOC_HEADER_ROW2 = [
     { key: 'DocumentHeaderText', label: 'Header Text' },
     { key: 'Reference', label: 'Reference' },
+    { key: 'ObjectType', label: 'Origin Type' },
+    { key: 'ObjectKey', label: 'Origin Key' },
     { key: 'CreatedBy', label: 'Created By' },
     { key: 'CreatedOn', label: 'Created On', isDate: true },
     { key: 'TransactionCode', label: 'TCode' },
