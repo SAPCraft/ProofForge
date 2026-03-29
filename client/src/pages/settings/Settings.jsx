@@ -89,69 +89,39 @@ function LocalProxySection() {
   React.useEffect(() => { checkProxy(); const t = setInterval(checkProxy, 10000); return () => clearInterval(t); }, []);
 
   const downloadProxy = () => {
-    const ps1 = `#Requires -Version 5.1
-# ProofForge SAP Local Proxy
-# Double-click to run, or: powershell -ExecutionPolicy Bypass -File proofforge-proxy.ps1
+    const cmd = `@echo off
+title ProofForge SAP Proxy
+chcp 65001 >nul 2>&1
 
-$host.UI.RawUI.WindowTitle = "ProofForge SAP Proxy"
+echo.
+echo   ProofForge SAP Local Proxy
+echo   ================================
+echo.
 
-Write-Host ""
-Write-Host "  ◆ ProofForge SAP Local Proxy" -ForegroundColor Cyan
-Write-Host "  ════════════════════════════════" -ForegroundColor DarkGray
-Write-Host ""
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    echo   [!] Node.js is not installed.
+    echo   Download from: https://nodejs.org/
+    echo.
+    pause
+    exit /b 1
+)
 
-# Check Node.js
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host "  ✗ Node.js is not installed." -ForegroundColor Red
-    Write-Host "  Download from: https://nodejs.org/" -ForegroundColor Yellow
-    Write-Host ""
-    Read-Host "Press Enter to exit"
-    exit 1
-}
+for /f "tokens=*" %%v in ('node --version') do echo   Node.js %%v
+echo   Starting proxy on http://localhost:8585
+echo   Keep this window open while using ProofForge.
+echo.
 
-$nodeVersion = node --version
-Write-Host "  ✓ Node.js $nodeVersion" -ForegroundColor Green
-Write-Host "  ✓ Starting proxy on http://localhost:8585" -ForegroundColor Green
-Write-Host "  ✓ Keep this window open while using ProofForge" -ForegroundColor Green
-Write-Host ""
-Write-Host "  Press Ctrl+C to stop." -ForegroundColor DarkGray
-Write-Host ""
+node -e "const http=require('http'),https=require('https');const s=http.createServer((q,r)=>{r.setHeader('Access-Control-Allow-Origin','*');r.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,DELETE,OPTIONS');r.setHeader('Access-Control-Allow-Headers','Authorization,Content-Type,Accept,X-SAP-Target');if(q.method==='OPTIONS'){r.writeHead(204);r.end();return}if(q.url==='/health'){r.writeHead(200,{'Content-Type':'application/json'});r.end(JSON.stringify({status:'ok',proxy:'ProofForge SAP Local Proxy'}));return}const t=q.headers['x-sap-target'];if(!t){r.writeHead(400);r.end(JSON.stringify({error:'Missing X-SAP-Target'}));return}const u=t+q.url;console.log(new Date().toLocaleTimeString()+' '+q.method+' '+u);const m=u.startsWith('https')?https:http;const p=m.request(u,{method:q.method,headers:{...q.headers,host:new URL(t).host},rejectUnauthorized:false},z=>{const h={...z.headers};h['access-control-allow-origin']='*';console.log(new Date().toLocaleTimeString()+' <- '+z.statusCode);r.writeHead(z.statusCode,h);z.pipe(r)});p.on('error',e=>{console.error('ERR: '+e.message);r.writeHead(502);r.end(JSON.stringify({error:e.message}))});p.setTimeout(30000,()=>{p.destroy()});q.pipe(p)});s.listen(8585,()=>{console.log('  Ready! Listening on http://localhost:8585');console.log('')})"
 
-$proxyCode = @'
-const http=require("http"),https=require("https");
-const s=http.createServer((q,r)=>{
-  r.setHeader("Access-Control-Allow-Origin","*");
-  r.setHeader("Access-Control-Allow-Methods","GET,POST,PUT,DELETE,OPTIONS");
-  r.setHeader("Access-Control-Allow-Headers","Authorization,Content-Type,Accept,X-SAP-Target");
-  if(q.method==="OPTIONS"){r.writeHead(204);r.end();return}
-  if(q.url==="/health"){r.writeHead(200,{"Content-Type":"application/json"});r.end(JSON.stringify({status:"ok",proxy:"ProofForge SAP Local Proxy"}));return}
-  const t=q.headers["x-sap-target"];
-  if(!t){r.writeHead(400);r.end(JSON.stringify({error:"Missing X-SAP-Target"}));return}
-  const u=t+q.url;
-  const ts=new Date().toLocaleTimeString();
-  console.log(ts+" [PROXY] "+q.method+" "+u);
-  const m=u.startsWith("https")?https:http;
-  const p=m.request(u,{method:q.method,headers:{...q.headers,host:new URL(t).host},rejectUnauthorized:false},z=>{
-    const h={...z.headers};h["access-control-allow-origin"]="*";
-    console.log(ts+" [PROXY] <- "+z.statusCode);
-    r.writeHead(z.statusCode,h);z.pipe(r)
-  });
-  p.on("error",e=>{console.error(ts+" [PROXY] Error: "+e.message);r.writeHead(502);r.end(JSON.stringify({error:e.message}))});
-  p.setTimeout(30000,()=>{p.destroy()});
-  q.pipe(p)
-});
-s.listen(8585,()=>{console.log("  ✓ Proxy ready on http://localhost:8585\\n")});
-'@
-
-node -e $proxyCode
-
-Read-Host "Press Enter to exit"
+echo.
+pause
 `;
-    const blob = new Blob([ps1], { type: 'text/plain' });
+    const blob = new Blob([cmd], { type: 'application/cmd' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'proofforge-proxy.ps1';
+    a.download = 'proofforge-proxy.cmd';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -175,13 +145,13 @@ Read-Host "Press Enter to exit"
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
           <button className="btn btn-sm btn-ghost" onClick={checkProxy}>Check</button>
           <button className="btn btn-sm btn-primary" onClick={downloadProxy}>
-            ⬇ Download proofforge-proxy.ps1
+            ⬇ Download Proxy
           </button>
         </div>
       </div>
       {status === 'offline' && (
         <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '8px', lineHeight: '1.6' }}>
-          <strong>How to start:</strong> Download the .ps1 file → right-click → "Run with PowerShell" → keep the window open.
+          <strong>How to start:</strong> Download → double-click the .cmd file → keep the window open.
           Requires <a href="https://nodejs.org/" target="_blank" rel="noopener">Node.js</a> on your machine.
         </div>
       )}
