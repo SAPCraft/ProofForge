@@ -407,11 +407,20 @@ export default function RunExecute() {
       },
       body: soap,
     });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(`SOAP ${res.status}: ${t.slice(0, 200)}`);
-    }
     const xml = await res.text();
+    // Check for SOAP faults BEFORE checking HTTP status (TABLE_WITHOUT_DATA comes as 500)
+    if (!res.ok) {
+      // Parse XML fault first — some faults are normal (empty table)
+      const faultMatch = xml.match(/<faultstring>([^<]+)<\/faultstring>/);
+      if (faultMatch) {
+        const fault = faultMatch[1];
+        if (fault === 'TABLE_WITHOUT_DATA' || fault === 'NOT_AUTHORIZED') {
+          console.log(`[ProofForge] RFC: ${fault} for ${table} — returning empty`);
+          return [];
+        }
+      }
+      throw new Error(`SOAP ${res.status}: ${xml.slice(0, 200)}`);
+    }
     console.log('[ProofForge] SOAP response length:', xml.length);
     console.log('[ProofForge] SOAP XML:', xml.length < 5000 ? xml : xml.slice(0, 3000) + '\n...(truncated)');
     // Parse response: extract FIELDS and DATA
