@@ -309,8 +309,10 @@ export default function RunExecute() {
           result.header.DocumentHeaderText = result.cashJournal.BusinessTransaction;
         }
 
-        if (result.items.length === 0) throw new Error('Document not found in BKPF/BSEG or ACDOCA');
-        console.log(`[ProofForge] Success: ${result.items.length} line items`);
+        if (result.items.length === 0 && !result.header && !result.cashJournal) {
+          throw new Error('Document not found in BKPF/BSEG, ACDOCA, or TCJ_DOCUMENTS');
+        }
+        console.log(`[ProofForge] Success: ${result.items.length} line items, header: ${!!result.header}, cashJournal: ${!!result.cashJournal}`);
         setSapDocs((prev) => ({ ...prev, [key]: result }));
         await saveSapPayload(objectType, objectId, result);
         return;
@@ -624,10 +626,10 @@ export default function RunExecute() {
   };
 
   const renderDocumentFB03 = (docData, objectType) => {
-    if (!docData?.items || docData.items.length === 0) {
+    if ((!docData?.items || docData.items.length === 0) && !docData?.header && !docData?.cashJournal) {
       return <div style={{ padding: '10px', color: '#6b7280', fontSize: '12px' }}>No data returned from SAP</div>;
     }
-    const hdr = docData.header || docData.items[0];
+    const hdr = docData.header || (docData.items?.length > 0 ? docData.items[0] : {});
     const docKey = `${objectType}_${hdr?.AccountingDocument || ''}`;
 
     return (
