@@ -122,59 +122,74 @@ export default function RunExecute() {
         const docNum = objectId.padStart(10, '0');
         console.log('[ProofForge] Document number padded:', objectId, '->', docNum);
 
-        // Fetch document header (BKPF) — search by doc number only, pick latest
-        let headerRows = await fetchViaSoapRfc('BKPF',
-          ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
-          [`BELNR EQ '${docNum}'`],
-          sys.base_url, client, auth
-        );
-        console.log('[ProofForge] BKPF rows:', headerRows.length);
+        // Try ACDOCA first (S/4HANA Universal Journal), then BKPF+BSEG (classic)
+        const STRATEGIES = [
+          { name: 'ACDOCA', fetch: async () => {
+            const rows = await fetchViaSoapRfc('ACDOCA',
+              ['RCLNT','RBUKRS','BELNR','GJAHR','BUZEI','BSCHL','RACCT','TSL','RHCUR','DRCRK','KUNNR','LIFNR','PRCTR','KOSTL','SGTXT','ZUESSION','BLART','BUDAT','BLDAT','BKTXT','USNAM'],
+              [`BELNR EQ '${docNum}'`],
+              sys.base_url, client, auth
+            );
+            if (rows.length === 0) return null;
+            // Pick latest year if multiple
+            rows.sort((a,b) => (b.GJAHR||'').localeCompare(a.GJAHR||''));
+            const gjahr = rows[0].GJAHR;
+            const filtered = rows.filter(r => r.GJAHR === gjahr);
+            return filtered.map(r => ({
+              CompanyCode: r.RBUKRS, AccountingDocument: objectId, FiscalYear: r.GJAHR,
+              AccountingDocumentItem: r.BUZEI, PostingKey: r.BSCHL, GLAccount: r.RACCT,
+              DebitAmountInTransCrcy: r.DRCRK === 'S' ? r.TSL : '',
+              CreditAmountInTransCrcy: r.DRCRK === 'H' ? r.TSL : '',
+              TransactionCurrency: r.RHCUR, Customer: r.KUNNR, Supplier: r.LIFNR,
+              ProfitCenter: r.PRCTR, CostCenter: r.KOSTL, ItemText: r.SGTXT,
+              AccountingDocumentType: r.BLART, PostingDate: r.BUDAT, DocumentDate: r.BLDAT,
+              DocumentHeaderText: r.BKTXT,
+            }));
+          }},
+          { name: 'BKPF+BSEG', fetch: async () => {
+            const headerRows = await fetchViaSoapRfc('BKPF',
+              ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
+              [`BELNR EQ '${docNum}'`],
+              sys.base_url, client, auth
+            );
+            if (headerRows.length === 0) return null;
+            headerRows.sort((a,b) => (b.GJAHR||'').localeCompare(a.GJAHR||''));
+            const hdr = headerRows[0];
+            const lineRows = await fetchViaSoapRfc('BSEG',
+              ['BUZEI','BSCHL','HKONT','DMBTR','WRBTR','SHKZG','SGTXT','PRCTR','KOSTL','KUNNR','LIFNR','ZUONR'],
+              [`BELNR EQ '${docNum}' AND GJAHR EQ '${hdr.GJAHR}' AND BUKRS EQ '${hdr.BUKRS}'`],
+              sys.base_url, client, auth
+            );
+            if (lineRows.length === 0) return null;
+            return lineRows.map(line => ({
+              CompanyCode: hdr.BUKRS, AccountingDocument: objectId, FiscalYear: hdr.GJAHR,
+              AccountingDocumentType: hdr.BLART, PostingDate: hdr.BUDAT, DocumentDate: hdr.BLDAT,
+              TransactionCurrency: hdr.WAERS, DocumentHeaderText: hdr.BKTXT,
+              AccountingDocumentItem: line.BUZEI, PostingKey: line.BSCHL, GLAccount: line.HKONT,
+              DebitAmountInTransCrcy: line.SHKZG === 'S' ? line.WRBTR : '',
+              CreditAmountInTransCrcy: line.SHKZG === 'H' ? line.WRBTR : '',
+              Customer: line.KUNNR, Supplier: line.LIFNR, ProfitCenter: line.PRCTR,
+              CostCenter: line.KOSTL, ItemText: line.SGTXT, AssignmentReference: line.ZUONR,
+            }));
+          }},
+        ];
 
-        // If multiple results (same doc number in different years/companies), pick the latest
-        if (headerRows.length > 1) {
-          headerRows.sort((a, b) => (b.GJAHR || '').localeCompare(a.GJAHR || '') || (b.BUDAT || '').localeCompare(a.BUDAT || ''));
-          console.log('[ProofForge] Multiple results, picking latest: BUKRS=' + headerRows[0].BUKRS + ' GJAHR=' + headerRows[0].GJAHR);
-          headerRows = [headerRows[0]];
+        let items = null;
+        let strategyUsed = '';
+        for (const strat of STRATEGIES) {
+          console.log(`[ProofForge] Trying ${strat.name}...`);
+          try {
+            items = await strat.fetch();
+            if (items && items.length > 0) { strategyUsed = strat.name; break; }
+            console.log(`[ProofForge] ${strat.name}: 0 rows`);
+          } catch (e) {
+            console.log(`[ProofForge] ${strat.name}: ${e.message}`);
+          }
         }
+        if (!items || items.length === 0) throw new Error('Document not found in ACDOCA or BKPF');
 
-        // Get fiscal year and company code from header for line items query
-        let lineRows = [];
-        if (headerRows.length > 0) {
-          const gjahr = headerRows[0].GJAHR;
-          const bukrs = headerRows[0].BUKRS;
-          lineRows = await fetchViaSoapRfc('BSEG',
-            ['BUZEI','BSCHL','HKONT','DMBTR','WRBTR','SHKZG','SGTXT','PRCTR','KOSTL','KUNNR','LIFNR','ZUONR'],
-            [`BELNR EQ '${docNum}' AND GJAHR EQ '${gjahr}' AND BUKRS EQ '${bukrs}'`],
-            sys.base_url, client, auth
-          );
-          console.log('[ProofForge] BSEG rows:', lineRows.length);
-        }
-
-        // Combine into display-friendly format
-        const items = lineRows.map(line => ({
-          CompanyCode: headerRows[0]?.BUKRS,
-          AccountingDocument: objectId,
-          FiscalYear: headerRows[0]?.GJAHR,
-          AccountingDocumentType: headerRows[0]?.BLART,
-          PostingDate: headerRows[0]?.BUDAT,
-          DocumentDate: headerRows[0]?.BLDAT,
-          TransactionCurrency: headerRows[0]?.WAERS,
-          DocumentHeaderText: headerRows[0]?.BKTXT,
-          AccountingDocumentItem: line.BUZEI,
-          PostingKey: line.BSCHL,
-          GLAccount: line.HKONT,
-          DebitAmountInTransCrcy: line.SHKZG === 'S' ? line.WRBTR : '',
-          CreditAmountInTransCrcy: line.SHKZG === 'H' ? line.WRBTR : '',
-          AmountInCompanyCodeCurrency: line.DMBTR,
-          Customer: line.KUNNR,
-          Supplier: line.LIFNR,
-          ProfitCenter: line.PRCTR,
-          CostCenter: line.KOSTL,
-          ItemText: line.SGTXT,
-          AssignmentReference: line.ZUONR,
-        }));
-
-        const result = { items, fetched_at: new Date().toISOString(), service: 'RFC_READ_TABLE (SOAP)' };
+        console.log(`[ProofForge] Success via ${strategyUsed}: ${items.length} items`);
+        const result = { items, fetched_at: new Date().toISOString(), service: `RFC (${strategyUsed})` };
         setSapDocs((prev) => ({ ...prev, [key]: result }));
         await saveSapPayload(objectType, objectId, result);
         return;
