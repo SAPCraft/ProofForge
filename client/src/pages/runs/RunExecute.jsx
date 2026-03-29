@@ -122,13 +122,26 @@ export default function RunExecute() {
         const docNum = objectId.padStart(10, '0');
         console.log('[ProofForge] Document number padded:', objectId, '->', docNum);
 
-        // Fetch document header (BKPF)
-        const headerRows = await fetchViaSoapRfc('BKPF',
+        // Fetch document header (BKPF) - try with current year first, then without
+        const currentYear = new Date().getFullYear().toString();
+        let headerRows = await fetchViaSoapRfc('BKPF',
           ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
-          [`BELNR EQ '${docNum}'`],
+          [`BELNR EQ '${docNum}' AND GJAHR EQ '${currentYear}'`],
           sys.base_url, client, auth
         );
-        console.log('[ProofForge] BKPF rows:', headerRows.length);
+        console.log('[ProofForge] BKPF rows (year ' + currentYear + '):', headerRows.length);
+
+        // If not found, try previous year
+        if (headerRows.length === 0) {
+          const prevYear = (parseInt(currentYear) - 1).toString();
+          console.log('[ProofForge] Trying previous year:', prevYear);
+          headerRows = await fetchViaSoapRfc('BKPF',
+            ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
+            [`BELNR EQ '${docNum}' AND GJAHR EQ '${prevYear}'`],
+            sys.base_url, client, auth
+          );
+          console.log('[ProofForge] BKPF rows (year ' + prevYear + '):', headerRows.length);
+        }
 
         // Get fiscal year and company code from header for line items query
         let lineRows = [];
