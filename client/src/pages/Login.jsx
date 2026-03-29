@@ -36,7 +36,7 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@proofforge.local"
+              placeholder="you@company.com"
               required
             />
           </div>
