@@ -15,6 +15,8 @@ export default function RunExecute() {
   const [comment, setComment] = useState('');
   const [valName, setValName] = useState('');
   const [defects, setDefects] = useState([]);
+  const [sapDocType, setSapDocType] = useState('FI Document');
+  const [sapDocNum, setSapDocNum] = useState('');
   const fileRef = useRef(null);
 
   const load = async () => {
@@ -42,6 +44,22 @@ export default function RunExecute() {
     await api.post(`/runs/${id}/steps/${stepId}/execute`, { status, comment });
     setComment('');
     load();
+  };
+
+  const handleAddSapObject = async (stepId) => {
+    if (!sapDocNum.trim()) return;
+    const stepExec = getStepExec(stepId);
+    const attempt = getLatestAttempt(stepExec);
+    if (!attempt) return;
+    const existing = attempt.sap_objects || [];
+    const newObj = {
+      source_system: 'SAP',
+      object_type: sapDocType,
+      object_id: sapDocNum.trim(),
+      captured_at: new Date().toISOString(),
+    };
+    await handleUpdateAttempt(stepId, attempt.attempt_number, { sap_objects: [...existing, newObj] });
+    setSapDocNum('');
   };
 
   const handleUpdateAttempt = async (stepId, attemptNum, data) => {
@@ -156,12 +174,34 @@ export default function RunExecute() {
                 </div>
               </div>
 
-              {activeStepDef.description && (
-                <div className="step-info-block">
-                  <label>Description</label>
-                  <p>{activeStepDef.description}</p>
+              <div className="step-info-row" style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ flex: 1 }}>
+                  {activeStepDef.description && (
+                    <div className="step-info-block">
+                      <label>Description</label>
+                      <p style={{ whiteSpace: 'pre-line' }}>{activeStepDef.description}</p>
+                    </div>
+                  )}
                 </div>
-              )}
+                {activeStepDef.parameters && Object.keys(activeStepDef.parameters).length > 0 && (
+                  <div style={{ flex: 1 }}>
+                    <div className="step-info-block">
+                      <label>Input Parameters</label>
+                      <div style={{ background: '#fafbfc', padding: '6px 10px', borderRadius: '4px', border: '1px solid #eef0f3', fontSize: '12px' }}>
+                        {typeof activeStepDef.parameters === 'string'
+                          ? <p style={{ whiteSpace: 'pre-line' }}>{activeStepDef.parameters}</p>
+                          : Object.entries(activeStepDef.parameters).map(([k, v]) => (
+                            <div key={k} style={{ display: 'flex', gap: '8px', padding: '2px 0' }}>
+                              <span style={{ fontWeight: 600, color: '#6b7280', minWidth: '140px' }}>{k}:</span>
+                              <span>{v}</span>
+                            </div>
+                          ))
+                        }
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               {activeStepDef.preconditions && (
                 <div className="step-info-block">
                   <label>Preconditions</label>
@@ -297,6 +337,37 @@ export default function RunExecute() {
                       </button>
                       <button className="btn btn-ghost status-skipped" onClick={() => handleExecute(activeStep, 'skipped')}>
                         Skip
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* SAP Document Reference */}
+                {activeAttempt && (
+                  <div style={{ marginTop: '12px', padding: '10px 14px', border: '1px solid #e2e5e9', borderRadius: '6px', background: '#fafbfc' }}>
+                    <label style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', color: '#6b7280', marginBottom: '6px', display: 'block' }}>
+                      SAP Document Reference
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <select value={sapDocType} onChange={(e) => setSapDocType(e.target.value)} style={{ width: '160px', fontSize: '12px' }}>
+                        <option value="FI Document">FI Document</option>
+                        <option value="Material Document">Material Document</option>
+                        <option value="Sales Order">Sales Order</option>
+                        <option value="Purchase Order">Purchase Order</option>
+                        <option value="Delivery">Delivery</option>
+                        <option value="Invoice">Invoice</option>
+                        <option value="Payment">Payment</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      <input
+                        placeholder="Document number..."
+                        value={sapDocNum}
+                        onChange={(e) => setSapDocNum(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddSapObject(activeStep)}
+                        style={{ flex: 1, fontSize: '12px' }}
+                      />
+                      <button className="btn btn-sm" onClick={() => handleAddSapObject(activeStep)}>
+                        + Add
                       </button>
                     </div>
                   </div>
