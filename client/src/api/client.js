@@ -20,10 +20,10 @@ export async function apiFetch(path, options = {}) {
   return data;
 }
 
-export async function apiUpload(path, file) {
+export async function apiUpload(path, file, filename) {
   const token = getToken();
   const form = new FormData();
-  form.append('file', file);
+  form.append('file', filename ? new File([file], filename, { type: file.type }) : file);
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},

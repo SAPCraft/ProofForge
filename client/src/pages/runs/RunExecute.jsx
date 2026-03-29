@@ -15,8 +15,9 @@ export default function RunExecute() {
   const [comment, setComment] = useState('');
   const [valName, setValName] = useState('');
   const [defects, setDefects] = useState([]);
-  const [sapDocType, setSapDocType] = useState('FI Document');
+  const [sapDocType, setSapDocType] = useState('Cash Document');
   const [sapDocNum, setSapDocNum] = useState('');
+  const [pastedImages, setPastedImages] = useState([]);
   const fileRef = useRef(null);
 
   const load = async () => {
@@ -44,6 +45,39 @@ export default function RunExecute() {
     await api.post(`/runs/${id}/steps/${stepId}/execute`, { status, comment });
     setComment('');
     load();
+  };
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const url = URL.createObjectURL(file);
+          setPastedImages((prev) => [...prev, { file, url }]);
+        }
+        break;
+      }
+    }
+  };
+
+  const handleUploadPasted = async (stepId) => {
+    const stepExec = getStepExec(stepId);
+    const attempt = getLatestAttempt(stepExec);
+    if (!attempt) return;
+    const allAttachments = [...(attempt.attachments || [])];
+    for (const img of pastedImages) {
+      const meta = await api.upload(`/attachments/${id}/${stepId}/${attempt.attempt_number}`, img.file, `screenshot_${Date.now()}.png`);
+      allAttachments.push(meta);
+    }
+    await handleUpdateAttempt(stepId, attempt.attempt_number, { attachments: allAttachments });
+    setPastedImages([]);
+  };
+
+  const removePastedImage = (index) => {
+    setPastedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleAddSapObject = async (stepId) => {
@@ -385,21 +419,49 @@ export default function RunExecute() {
                 {/* Start / Re-execute */}
                 {(!activeAttempt || ['passed', 'passed_with_comments', 'failed', 'blocked', 'skipped'].includes(activeAttempt?.status)) && (
                   <div className="execute-controls">
-                    <textarea
-                      placeholder="Comment..."
-                      value={comment}
-                      onChange={(e) => setComment(e.target.value)}
-                      rows={2}
-                      className="comment-input"
-                    />
+                    <div
+                      style={{ border: '2px dashed #d0d9f0', borderRadius: '6px', padding: '10px', marginBottom: '8px', background: pastedImages.length > 0 ? '#f8faff' : 'transparent' }}
+                    >
+                      <textarea
+                        placeholder="Comment + paste screenshot (Ctrl+V)..."
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                        onPaste={handlePaste}
+                        rows={2}
+                        className="comment-input"
+                        style={{ marginBottom: pastedImages.length > 0 ? '8px' : 0 }}
+                      />
+                      {pastedImages.length > 0 && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {pastedImages.map((img, i) => (
+                            <div key={i} style={{ position: 'relative', border: '1px solid #e2e5e9', borderRadius: '4px', overflow: 'hidden' }}>
+                              <img src={img.url} alt={`paste-${i}`} style={{ maxWidth: '200px', maxHeight: '120px', display: 'block' }} />
+                              <button
+                                onClick={() => removePastedImage(i)}
+                                style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '11px', cursor: 'pointer', lineHeight: '16px', textAlign: 'center' }}
+                              >×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <div className="execute-buttons">
-                      <button className="btn btn-primary" onClick={() => handleExecute(activeStep, 'in_progress')}>
+                      <button className="btn btn-primary" onClick={async () => {
+                        await handleExecute(activeStep, 'in_progress');
+                        if (pastedImages.length > 0) { await handleUploadPasted(activeStep); }
+                      }}>
                         {activeAttempt ? 'Re-execute' : 'Start'}
                       </button>
-                      <button className="btn btn-ghost status-passed" onClick={() => handleExecute(activeStep, 'passed')}>
+                      <button className="btn btn-ghost status-passed" onClick={async () => {
+                        await handleExecute(activeStep, 'passed');
+                        if (pastedImages.length > 0) { await handleUploadPasted(activeStep); }
+                      }}>
                         Pass
                       </button>
-                      <button className="btn btn-ghost status-failed" onClick={() => handleExecute(activeStep, 'failed')}>
+                      <button className="btn btn-ghost status-failed" onClick={async () => {
+                        await handleExecute(activeStep, 'failed');
+                        if (pastedImages.length > 0) { await handleUploadPasted(activeStep); }
+                      }}>
                         Fail
                       </button>
                       <button className="btn btn-ghost status-skipped" onClick={() => handleExecute(activeStep, 'skipped')}>
@@ -418,6 +480,7 @@ export default function RunExecute() {
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <select value={sapDocType} onChange={(e) => setSapDocType(e.target.value)} style={{ width: '160px', fontSize: '12px' }}>
                         <option value="FI Document">FI Document</option>
+                        <option value="Cash Document">Cash Document</option>
                         <option value="Material Document">Material Document</option>
                         <option value="Sales Order">Sales Order</option>
                         <option value="Purchase Order">Purchase Order</option>
