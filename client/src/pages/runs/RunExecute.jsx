@@ -181,41 +181,97 @@ export default function RunExecute() {
         // 3. ACDOCA — universal journal registers (always try, collapsible)
         console.log('[ProofForge] Fetching ACDOCA registers...');
         try {
+          // Use company code + fiscal year from header if available
+          const bukrs = result.header?.CompanyCode;
+          const gjahr = result.header?.FiscalYear;
+          let acdocaWhere = `BELNR EQ '${docNum}'`;
+          if (bukrs) acdocaWhere += ` AND RBUKRS EQ '${bukrs}'`;
+          if (gjahr) acdocaWhere += ` AND GJAHR EQ '${gjahr}'`;
+          console.log('[ProofForge] ACDOCA filter:', acdocaWhere);
+
           const acdocaRows = await fetchViaSoapRfc('ACDOCA',
             ['RLDNR','RBUKRS','BELNR','GJAHR','BUZEI','DOCLN','RACCT','RHCUR','TSL','HSL','DRCRK','KUNNR','LIFNR','PRCTR','KOSTL','RCNTR','KOKRS','RFAREA','SEGMENT','RASSC','RCOMP'],
-            [`BELNR EQ '${docNum}'`],
+            [acdocaWhere],
             sys.base_url, client, auth
           );
+          console.log('[ProofForge] ACDOCA raw rows:', acdocaRows.length);
           if (acdocaRows.length > 0) {
-            acdocaRows.sort((a,b) => (b.GJAHR||'').localeCompare(a.GJAHR||''));
-            const gjahr = acdocaRows[0].GJAHR;
-            result.acdoca = acdocaRows.filter(r => r.GJAHR === gjahr);
-            console.log('[ProofForge] ACDOCA rows:', result.acdoca.length);
+            result.acdoca = acdocaRows;
+            console.log('[ProofForge] ACDOCA rows stored:', result.acdoca.length);
           }
         } catch (e) { console.log('[ProofForge] ACDOCA skip:', e.message); }
 
-        // 4. Cash Journal header (if Cash Document type)
+        // 4. Cash Journal (if Cash Document type) — search TCJP (positions table) by doc number
         if (objectType === 'Cash Document') {
-          console.log('[ProofForge] Fetching TCJD (Cash Journal Document)...');
+          console.log('[ProofForge] Fetching Cash Journal data...');
           try {
-            const tcjdRows = await fetchViaSoapRfc('TCJD',
-              ['BUKRS','CJNR','GJAHR','BELNR','CJDT','CJBV','CJHA','CJSU','CJBK','CJBKA','CJBS','WAERS','CPUDT','USNAM'],
-              [`BELNR EQ '${docNum}'`],
+            // TCJP = cash journal positions, CJDOCNR = cash journal doc number
+            const tcjpRows = await fetchViaSoapRfc('TCJP',
+              ['BUKRS','CJNR','GJAHR','CJDOCNR','BUZEI','CJBV','CJHA','WAERS','CJSU','HKONT','KUNNR','LIFNR','PRCTR','KOSTL','SGTXT','ZUESSION','BUDAT','CPUDT','USNAM','BELNR'],
+              [`CJDOCNR EQ '${docNum}'`],
               sys.base_url, client, auth
             );
-            if (tcjdRows.length > 0) {
-              const cj = tcjdRows[0];
+            console.log('[ProofForge] TCJP rows:', tcjpRows.length);
+
+            if (tcjpRows.length > 0) {
+              const cj = tcjpRows[0];
               result.cashJournal = {
                 CashJournal: cj.CJNR, CompanyCode: cj.BUKRS, FiscalYear: cj.GJAHR,
-                DocumentDate: cj.CJDT, BusinessTransaction: cj.CJBV,
+                CashJournalDocNumber: cj.CJDOCNR,
+                PostingDate: cj.BUDAT, BusinessTransaction: cj.CJBV,
                 Amount: cj.CJHA, Currency: cj.WAERS,
-                TaxAmount: cj.CJSU, BankAccount: cj.CJBK, BankAccountName: cj.CJBKA,
-                PostingStatus: cj.CJBS,
+                TaxAmount: cj.CJSU, GLAccount: cj.HKONT,
+                Customer: cj.KUNNR, Supplier: cj.LIFNR,
+                ProfitCenter: cj.PRCTR, CostCenter: cj.KOSTL,
+                Text: cj.SGTXT, Assignment: cj.ZUESSION,
+                FIDocument: cj.BELNR,
                 CreatedBy: cj.USNAM, CreatedOn: cj.CPUDT,
               };
-              console.log('[ProofForge] Cash Journal:', result.cashJournal.CashJournal);
+              console.log('[ProofForge] Cash Journal:', cj.CJNR, 'FI Doc:', cj.BELNR);
+
+              // Build Cash Document items from TCJP
+              result.items = tcjpRows.map(p => ({
+                AccountingDocumentItem: p.BUZEI,
+                GLAccount: p.HKONT,
+                AmountInCompanyCodeCurrency: p.CJHA,
+                TransactionCurrency: p.WAERS,
+                Customer: p.KUNNR, Supplier: p.LIFNR,
+                ProfitCenter: p.PRCTR, CostCenter: p.KOSTL,
+                ItemText: p.SGTXT, AssignmentReference: p.ZUESSION,
+              }));
+
+              // Build header from Cash Journal data
+              result.header = {
+                CompanyCode: cj.BUKRS, FiscalYear: cj.GJAHR,
+                AccountingDocument: cj.CJDOCNR,
+                PostingDate: cj.BUDAT,
+                TransactionCurrency: cj.WAERS,
+                DocumentHeaderText: cj.CJBV,
+              };
             }
-          } catch (e) { console.log('[ProofForge] TCJD skip:', e.message); }
+          } catch (e) {
+            console.log('[ProofForge] TCJP failed:', e.message);
+            // Fallback — try TCJD with different key
+            try {
+              const tcjdRows = await fetchViaSoapRfc('TCJD',
+                ['BUKRS','CJNR','GJAHR','BELNR','CJDT','CJBV','CJHA','CJSU','CJBK','CJBKA','CJBS','WAERS','CPUDT','USNAM'],
+                [`BELNR EQ '${docNum}'`],
+                sys.base_url, client, auth
+              );
+              console.log('[ProofForge] TCJD rows:', tcjdRows.length);
+              if (tcjdRows.length > 0) {
+                const cj = tcjdRows[0];
+                result.cashJournal = {
+                  CashJournal: cj.CJNR, CompanyCode: cj.BUKRS, FiscalYear: cj.GJAHR,
+                  DocumentDate: cj.CJDT, BusinessTransaction: cj.CJBV,
+                  Amount: cj.CJHA, Currency: cj.WAERS,
+                  TaxAmount: cj.CJSU, BankAccount: cj.CJBK,
+                  PostingStatus: cj.CJBS,
+                  CreatedBy: cj.USNAM, CreatedOn: cj.CPUDT,
+                };
+              }
+            } catch (e2) { console.log('[ProofForge] TCJD also failed:', e2.message); }
+          }
         }
 
         // If BKPF was empty but ACDOCA has data, build header and items from ACDOCA
