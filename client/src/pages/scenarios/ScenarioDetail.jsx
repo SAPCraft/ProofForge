@@ -241,6 +241,15 @@ export default function ScenarioDetail() {
                         />
                       </div>
                     </div>
+                    <div className="step-field">
+                      <label>Fiori App / Transaction</label>
+                      <input
+                        value={step.fiori_app || ''}
+                        onChange={(e) => updateStep(step.id, 'fiori_app', e.target.value)}
+                        placeholder="e.g. CashJournal-enterCashJournalEntry?sap-ui-tech-hint=GUI"
+                        style={{ fontSize: '11px', fontFamily: 'monospace' }}
+                      />
+                    </div>
                     <div className="step-flags">
                       <label>
                         <input

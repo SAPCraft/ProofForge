@@ -114,6 +114,28 @@ export default function RunExecute() {
     load();
   };
 
+  const handleUpdateSapSystem = async (field, value) => {
+    const sapSystem = { ...(run.sap_system || {}), [field]: value };
+    await api.put(`/runs/${id}`, { sap_system: sapSystem });
+    load();
+  };
+
+  const buildSapUrl = (fioriApp) => {
+    const sys = run.sap_system;
+    if (!sys?.base_url || !fioriApp) return null;
+    const client = sys.client || '000';
+    const lang = sys.language || 'EN';
+    return `${sys.base_url}/sap/bc/ui2/flp?sap-client=${client}&sap-language=${lang}#${fioriApp}`;
+  };
+
+  const buildFlpHomeUrl = () => {
+    const sys = run.sap_system;
+    if (!sys?.base_url) return null;
+    const client = sys.client || '000';
+    const lang = sys.language || 'EN';
+    return `${sys.base_url}/sap/bc/ui2/flp?sap-client=${client}&sap-language=${lang}#Shell-home`;
+  };
+
   const activeStepDef = getStepDef(activeStep);
   const activeStepExec = getStepExec(activeStep);
   const activeAttempt = getLatestAttempt(activeStepExec);
@@ -141,6 +163,37 @@ export default function RunExecute() {
         </div>
       </div>
 
+      {/* SAP System Config */}
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', padding: '10px 16px', background: '#f0f4ff', border: '1px solid #d0d9f0', borderRadius: '6px', marginBottom: '12px', fontSize: '12px' }}>
+        <span style={{ fontWeight: 600, color: '#4c6fff', whiteSpace: 'nowrap' }}>SAP System:</span>
+        <input
+          placeholder="https://host:port"
+          value={run.sap_system?.base_url || ''}
+          onChange={(e) => handleUpdateSapSystem('base_url', e.target.value)}
+          onBlur={(e) => handleUpdateSapSystem('base_url', e.target.value)}
+          style={{ width: '300px', fontSize: '11px', fontFamily: 'monospace' }}
+        />
+        <span style={{ color: '#6b7280' }}>Client:</span>
+        <input
+          placeholder="220"
+          value={run.sap_system?.client || ''}
+          onChange={(e) => handleUpdateSapSystem('client', e.target.value)}
+          style={{ width: '60px', fontSize: '11px', textAlign: 'center' }}
+        />
+        <span style={{ color: '#6b7280' }}>Lang:</span>
+        <input
+          placeholder="EN"
+          value={run.sap_system?.language || ''}
+          onChange={(e) => handleUpdateSapSystem('language', e.target.value)}
+          style={{ width: '40px', fontSize: '11px', textAlign: 'center' }}
+        />
+        {buildFlpHomeUrl() && (
+          <a href={buildFlpHomeUrl()} target="_blank" rel="noopener" className="btn btn-sm btn-primary" style={{ marginLeft: 'auto', textDecoration: 'none' }}>
+            Open Fiori Launchpad
+          </a>
+        )}
+      </div>
+
       <div className="run-layout">
         {/* Step list sidebar */}
         <div className="run-steps-panel">
@@ -166,11 +219,25 @@ export default function RunExecute() {
           {activeStepDef && (
             <>
               <div className="step-detail-header">
-                <h3>Step {activeStepDef.order}: {activeStepDef.name}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <h3 style={{ margin: 0 }}>Step {activeStepDef.order}: {activeStepDef.name}</h3>
+                  {buildSapUrl(activeStepDef.fiori_app) && (
+                    <a
+                      href={buildSapUrl(activeStepDef.fiori_app)}
+                      target="_blank"
+                      rel="noopener"
+                      className="btn btn-sm btn-primary"
+                      style={{ textDecoration: 'none', fontSize: '11px' }}
+                    >
+                      ▶ Open in SAP
+                    </a>
+                  )}
+                </div>
                 <div className="step-detail-meta">
                   <span className={`executor-badge ${activeStepDef.executor_type}`}>{activeStepDef.executor_type}</span>
                   <span className="action-tag">{activeStepDef.action_type}</span>
                   {activeStepDef.mandatory !== false && <span className="mandatory-tag">Mandatory</span>}
+                  {activeStepDef.fiori_app && <span className="action-tag" style={{ fontFamily: 'monospace', fontSize: '10px' }}>{activeStepDef.fiori_app}</span>}
                 </div>
               </div>
 
