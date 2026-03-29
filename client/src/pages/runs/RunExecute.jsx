@@ -122,74 +122,119 @@ export default function RunExecute() {
         const docNum = objectId.padStart(10, '0');
         console.log('[ProofForge] Document number padded:', objectId, '->', docNum);
 
-        // Try ACDOCA first (S/4HANA Universal Journal), then BKPF+BSEG (classic)
-        const STRATEGIES = [
-          { name: 'ACDOCA', fetch: async () => {
-            const rows = await fetchViaSoapRfc('ACDOCA',
-              ['RCLNT','RBUKRS','BELNR','GJAHR','BUZEI','BSCHL','RACCT','TSL','RHCUR','DRCRK','KUNNR','LIFNR','PRCTR','KOSTL','SGTXT','ZUESSION','BLART','BUDAT','BLDAT','BKTXT','USNAM'],
-              [`BELNR EQ '${docNum}'`],
-              sys.base_url, client, auth
-            );
-            if (rows.length === 0) return null;
-            // Pick latest year if multiple
-            rows.sort((a,b) => (b.GJAHR||'').localeCompare(a.GJAHR||''));
-            const gjahr = rows[0].GJAHR;
-            const filtered = rows.filter(r => r.GJAHR === gjahr);
-            return filtered.map(r => ({
-              CompanyCode: r.RBUKRS, AccountingDocument: objectId, FiscalYear: r.GJAHR,
-              AccountingDocumentItem: r.BUZEI, PostingKey: r.BSCHL, GLAccount: r.RACCT,
-              DebitAmountInTransCrcy: r.DRCRK === 'S' ? r.TSL : '',
-              CreditAmountInTransCrcy: r.DRCRK === 'H' ? r.TSL : '',
-              TransactionCurrency: r.RHCUR, Customer: r.KUNNR, Supplier: r.LIFNR,
-              ProfitCenter: r.PRCTR, CostCenter: r.KOSTL, ItemText: r.SGTXT,
-              AccountingDocumentType: r.BLART, PostingDate: r.BUDAT, DocumentDate: r.BLDAT,
-              DocumentHeaderText: r.BKTXT,
-            }));
-          }},
-          { name: 'BKPF+BSEG', fetch: async () => {
-            const headerRows = await fetchViaSoapRfc('BKPF',
-              ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','WAERS','BKTXT','USNAM','CPUDT','TCODE'],
-              [`BELNR EQ '${docNum}'`],
-              sys.base_url, client, auth
-            );
-            if (headerRows.length === 0) return null;
-            headerRows.sort((a,b) => (b.GJAHR||'').localeCompare(a.GJAHR||''));
-            const hdr = headerRows[0];
-            const lineRows = await fetchViaSoapRfc('BSEG',
-              ['BUZEI','BSCHL','HKONT','DMBTR','WRBTR','SHKZG','SGTXT','PRCTR','KOSTL','KUNNR','LIFNR','ZUONR'],
-              [`BELNR EQ '${docNum}' AND GJAHR EQ '${hdr.GJAHR}' AND BUKRS EQ '${hdr.BUKRS}'`],
-              sys.base_url, client, auth
-            );
-            if (lineRows.length === 0) return null;
-            return lineRows.map(line => ({
-              CompanyCode: hdr.BUKRS, AccountingDocument: objectId, FiscalYear: hdr.GJAHR,
-              AccountingDocumentType: hdr.BLART, PostingDate: hdr.BUDAT, DocumentDate: hdr.BLDAT,
-              TransactionCurrency: hdr.WAERS, DocumentHeaderText: hdr.BKTXT,
-              AccountingDocumentItem: line.BUZEI, PostingKey: line.BSCHL, GLAccount: line.HKONT,
-              DebitAmountInTransCrcy: line.SHKZG === 'S' ? line.WRBTR : '',
-              CreditAmountInTransCrcy: line.SHKZG === 'H' ? line.WRBTR : '',
-              Customer: line.KUNNR, Supplier: line.LIFNR, ProfitCenter: line.PRCTR,
-              CostCenter: line.KOSTL, ItemText: line.SGTXT, AssignmentReference: line.ZUONR,
-            }));
-          }},
-        ];
+        // Fetch FI document: BKPF header + BSEG lines + ACDOCA registers
+        const result = { header: null, items: [], acdoca: [], cashJournal: null, fetched_at: new Date().toISOString(), service: 'RFC' };
 
-        let items = null;
-        let strategyUsed = '';
-        for (const strat of STRATEGIES) {
-          console.log(`[ProofForge] Trying ${strat.name}...`);
-          try {
-            items = await strat.fetch();
-            if (items && items.length > 0) { strategyUsed = strat.name; break; }
-            console.log(`[ProofForge] ${strat.name}: 0 rows`);
-          } catch (e) {
-            console.log(`[ProofForge] ${strat.name}: ${e.message}`);
-          }
+        // 1. BKPF — extended header
+        console.log('[ProofForge] Fetching BKPF header...');
+        const bkpfRows = await fetchViaSoapRfc('BKPF',
+          ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','MONAT','WAERS','KURSF','BKTXT','XBLNR','STBLG','STJAH','BSTAT','USNAM','CPUDT','CPUTM','TCODE','PPNAM','NUMPG','AWTYP','AWKEY'],
+          [`BELNR EQ '${docNum}'`],
+          sys.base_url, client, auth
+        );
+        console.log('[ProofForge] BKPF rows:', bkpfRows.length);
+
+        if (bkpfRows.length > 0) {
+          bkpfRows.sort((a,b) => (b.GJAHR||'').localeCompare(a.GJAHR||''));
+          const hdr = bkpfRows[0];
+          result.header = {
+            CompanyCode: hdr.BUKRS, AccountingDocument: objectId, FiscalYear: hdr.GJAHR,
+            Period: hdr.MONAT, AccountingDocumentType: hdr.BLART,
+            PostingDate: hdr.BUDAT, DocumentDate: hdr.BLDAT,
+            TransactionCurrency: hdr.WAERS, ExchangeRate: hdr.KURSF,
+            DocumentHeaderText: hdr.BKTXT, Reference: hdr.XBLNR,
+            ReversalDocument: hdr.STBLG, ReversalYear: hdr.STJAH,
+            DocumentStatus: hdr.BSTAT,
+            CreatedBy: hdr.USNAM, CreatedOn: hdr.CPUDT, CreatedTime: hdr.CPUTM,
+            TransactionCode: hdr.TCODE, EnteredBy: hdr.PPNAM,
+            NumberOfPages: hdr.NUMPG,
+            ObjectType: hdr.AWTYP, ObjectKey: hdr.AWKEY,
+          };
+
+          // 2. BSEG — extended line items
+          console.log('[ProofForge] Fetching BSEG lines...');
+          const bsegRows = await fetchViaSoapRfc('BSEG',
+            ['BUZEI','BSCHL','KOART','HKONT','DMBTR','WRBTR','SHKZG','MWSKZ','TXGRP','SGTXT','ZUONR','PRCTR','KOSTL','KUNNR','LIFNR','MATNR','WERKS','AUFNR','GSBER','VBELN','ZFBDT','ZTERM','ZLSCH','ZLSPR','ANBWA','ANLN1'],
+            [`BELNR EQ '${docNum}' AND GJAHR EQ '${hdr.GJAHR}' AND BUKRS EQ '${hdr.BUKRS}'`],
+            sys.base_url, client, auth
+          );
+          console.log('[ProofForge] BSEG rows:', bsegRows.length);
+
+          result.items = bsegRows.map(line => ({
+            AccountingDocumentItem: line.BUZEI, PostingKey: line.BSCHL,
+            AccountType: line.KOART, GLAccount: line.HKONT,
+            DebitAmountInTransCrcy: line.SHKZG === 'S' ? line.WRBTR : '',
+            CreditAmountInTransCrcy: line.SHKZG === 'H' ? line.WRBTR : '',
+            AmountInCompanyCodeCurrency: line.DMBTR,
+            TaxCode: line.MWSKZ, ItemText: line.SGTXT, AssignmentReference: line.ZUONR,
+            ProfitCenter: line.PRCTR, CostCenter: line.KOSTL,
+            Customer: line.KUNNR, Supplier: line.LIFNR,
+            Material: line.MATNR, Plant: line.WERKS, InternalOrder: line.AUFNR,
+            BusinessArea: line.GSBER, SalesDocument: line.VBELN,
+            BaselineDate: line.ZFBDT, PaymentTerms: line.ZTERM,
+            PaymentMethod: line.ZLSCH, PaymentBlock: line.ZLSPR,
+            AssetTransType: line.ANBWA, Asset: line.ANLN1,
+          }));
         }
-        if (!items || items.length === 0) throw new Error('Document not found in ACDOCA or BKPF');
 
-        console.log(`[ProofForge] Success via ${strategyUsed}: ${items.length} items`);
-        const result = { items, fetched_at: new Date().toISOString(), service: `RFC (${strategyUsed})` };
+        // 3. ACDOCA — universal journal registers (always try, collapsible)
+        console.log('[ProofForge] Fetching ACDOCA registers...');
+        try {
+          const acdocaRows = await fetchViaSoapRfc('ACDOCA',
+            ['RLDNR','RBUKRS','BELNR','GJAHR','BUZEI','DOCLN','RACCT','RHCUR','TSL','HSL','DRCRK','KUNNR','LIFNR','PRCTR','KOSTL','RCNTR','KOKRS','RFAREA','SEGMENT','RASSC','RCOMP'],
+            [`BELNR EQ '${docNum}'`],
+            sys.base_url, client, auth
+          );
+          if (acdocaRows.length > 0) {
+            acdocaRows.sort((a,b) => (b.GJAHR||'').localeCompare(a.GJAHR||''));
+            const gjahr = acdocaRows[0].GJAHR;
+            result.acdoca = acdocaRows.filter(r => r.GJAHR === gjahr);
+            console.log('[ProofForge] ACDOCA rows:', result.acdoca.length);
+          }
+        } catch (e) { console.log('[ProofForge] ACDOCA skip:', e.message); }
+
+        // 4. Cash Journal header (if Cash Document type)
+        if (objectType === 'Cash Document') {
+          console.log('[ProofForge] Fetching TCJD (Cash Journal Document)...');
+          try {
+            const tcjdRows = await fetchViaSoapRfc('TCJD',
+              ['BUKRS','CJNR','GJAHR','BELNR','CJDT','CJBV','CJHA','CJSU','CJBK','CJBKA','CJBS','WAERS','CPUDT','USNAM'],
+              [`BELNR EQ '${docNum}'`],
+              sys.base_url, client, auth
+            );
+            if (tcjdRows.length > 0) {
+              const cj = tcjdRows[0];
+              result.cashJournal = {
+                CashJournal: cj.CJNR, CompanyCode: cj.BUKRS, FiscalYear: cj.GJAHR,
+                DocumentDate: cj.CJDT, BusinessTransaction: cj.CJBV,
+                Amount: cj.CJHA, Currency: cj.WAERS,
+                TaxAmount: cj.CJSU, BankAccount: cj.CJBK, BankAccountName: cj.CJBKA,
+                PostingStatus: cj.CJBS,
+                CreatedBy: cj.USNAM, CreatedOn: cj.CPUDT,
+              };
+              console.log('[ProofForge] Cash Journal:', result.cashJournal.CashJournal);
+            }
+          } catch (e) { console.log('[ProofForge] TCJD skip:', e.message); }
+        }
+
+        // If BKPF was empty but ACDOCA has data, build items from ACDOCA
+        if (result.items.length === 0 && result.acdoca.length > 0) {
+          result.items = result.acdoca.map(r => ({
+            AccountingDocumentItem: r.BUZEI || r.DOCLN, GLAccount: r.RACCT,
+            DebitAmountInTransCrcy: r.DRCRK === 'S' ? r.TSL : '',
+            CreditAmountInTransCrcy: r.DRCRK === 'H' ? r.TSL : '',
+            TransactionCurrency: r.RHCUR, Customer: r.KUNNR, Supplier: r.LIFNR,
+            ProfitCenter: r.PRCTR, CostCenter: r.KOSTL,
+          }));
+          result.header = result.header || {
+            CompanyCode: result.acdoca[0].RBUKRS, AccountingDocument: objectId,
+            FiscalYear: result.acdoca[0].GJAHR,
+          };
+          result.service = 'RFC (ACDOCA)';
+        }
+
+        if (result.items.length === 0) throw new Error('Document not found in BKPF/BSEG or ACDOCA');
+        console.log(`[ProofForge] Success: ${result.items.length} line items`);
         setSapDocs((prev) => ({ ...prev, [key]: result }));
         await saveSapPayload(objectType, objectId, result);
         return;
@@ -329,30 +374,61 @@ export default function RunExecute() {
     });
   };
 
-  // FB03-style header fields (shown as key-value grid above line items)
-  const DOC_HEADER_FIELDS = [
+  // FB03-style header fields — two rows
+  const DOC_HEADER_ROW1 = [
     { key: 'CompanyCode', label: 'Company Code' },
-    { key: 'AccountingDocumentType', label: 'Document Type' },
-    { key: 'PostingDate', label: 'Posting Date' },
-    { key: 'DocumentDate', label: 'Document Date' },
+    { key: 'AccountingDocumentType', label: 'Doc Type' },
+    { key: 'PostingDate', label: 'Posting Date', isDate: true },
+    { key: 'DocumentDate', label: 'Document Date', isDate: true },
     { key: 'TransactionCurrency', label: 'Currency' },
-    { key: 'DocumentHeaderText', label: 'Header Text' },
     { key: 'FiscalYear', label: 'Fiscal Year' },
+    { key: 'Period', label: 'Period' },
+  ];
+  const DOC_HEADER_ROW2 = [
+    { key: 'DocumentHeaderText', label: 'Header Text' },
+    { key: 'Reference', label: 'Reference' },
+    { key: 'CreatedBy', label: 'Created By' },
+    { key: 'CreatedOn', label: 'Created On', isDate: true },
+    { key: 'TransactionCode', label: 'TCode' },
+    { key: 'ExchangeRate', label: 'Exch. Rate' },
+    { key: 'ReversalDocument', label: 'Reversal Doc' },
   ];
 
-  // Line item columns (table below header)
+  // Line item columns
   const LINE_ITEM_FIELDS = [
-    { key: 'AccountingDocumentItem', label: 'Itm', width: '35px' },
-    { key: 'PostingKey', label: 'PK', width: '30px' },
-    { key: 'GLAccount', label: 'G/L Account', width: '100px' },
-    { key: 'Customer', label: 'Customer', width: '90px' },
-    { key: 'Supplier', label: 'Supplier', width: '90px' },
-    { key: 'DebitAmountInTransCrcy', label: 'Debit', width: '90px', align: 'right', isAmount: true },
-    { key: 'CreditAmountInTransCrcy', label: 'Credit', width: '90px', align: 'right', isAmount: true },
-    { key: 'ProfitCenter', label: 'Profit Ctr', width: '90px' },
-    { key: 'CostCenter', label: 'Cost Ctr', width: '80px' },
-    { key: 'AssignmentReference', label: 'Assignment', width: '90px' },
-    { key: 'ItemText', label: 'Text', width: '120px' },
+    { key: 'AccountingDocumentItem', label: 'Itm' },
+    { key: 'PostingKey', label: 'PK' },
+    { key: 'AccountType', label: 'Tp' },
+    { key: 'GLAccount', label: 'G/L Account' },
+    { key: 'Customer', label: 'Customer' },
+    { key: 'Supplier', label: 'Supplier' },
+    { key: 'DebitAmountInTransCrcy', label: 'Debit', align: 'right', isAmount: true },
+    { key: 'CreditAmountInTransCrcy', label: 'Credit', align: 'right', isAmount: true },
+    { key: 'TaxCode', label: 'Tax' },
+    { key: 'ProfitCenter', label: 'Profit Ctr' },
+    { key: 'CostCenter', label: 'Cost Ctr' },
+    { key: 'BusinessArea', label: 'BusArea' },
+    { key: 'AssignmentReference', label: 'Assignment' },
+    { key: 'ItemText', label: 'Text' },
+    { key: 'PaymentTerms', label: 'PmtTerms' },
+    { key: 'BaselineDate', label: 'Baseline', isDate: true },
+  ];
+
+  // ACDOCA columns
+  const ACDOCA_FIELDS = [
+    { key: 'RLDNR', label: 'Ledger' },
+    { key: 'DOCLN', label: 'Line' },
+    { key: 'RACCT', label: 'Account' },
+    { key: 'DRCRK', label: 'D/C' },
+    { key: 'TSL', label: 'Trans. Amt', align: 'right', isAmount: true },
+    { key: 'HSL', label: 'Local Amt', align: 'right', isAmount: true },
+    { key: 'RHCUR', label: 'Curr' },
+    { key: 'KUNNR', label: 'Customer' },
+    { key: 'LIFNR', label: 'Supplier' },
+    { key: 'PRCTR', label: 'Profit Ctr' },
+    { key: 'KOSTL', label: 'Cost Ctr' },
+    { key: 'SEGMENT', label: 'Segment' },
+    { key: 'RFAREA', label: 'Func. Area' },
   ];
 
   // Format SAP date YYYYMMDD → DD.MM.YYYY
@@ -360,71 +436,125 @@ export default function RunExecute() {
   // Format amount with thousands separator
   const fmtAmt = (v) => { if (!v || v === '0' || v === '0.00') return ''; const n = parseFloat(v); return isNaN(n) ? v : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 
-  const renderDocumentFB03 = (docData, objectType) => {
-    if (!docData?.items || docData.items.length === 0) {
-      return <div style={{ padding: '10px', color: '#6b7280', fontSize: '12px' }}>No data returned from SAP</div>;
-    }
-    const items = docData.items;
-    const hdr = items[0]; // header data from first line
+  const [expandedAcdoca, setExpandedAcdoca] = useState({});
 
-    // Calculate totals
+  const renderHeaderGrid = (hdr, fields) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1px 12px', padding: '6px 12px', background: '#f8fafc' }}>
+      {fields.map(f => {
+        let val = hdr?.[f.key] || '';
+        if (f.isDate) val = fmtDate(val);
+        if (!val || val === '0' || val === '000') return null;
+        return (
+          <div key={f.key} style={{ display: 'flex', gap: '4px', padding: '1px 0', fontSize: '11px' }}>
+            <span style={{ color: '#6b7280', minWidth: '90px' }}>{f.label}:</span>
+            <span style={{ fontWeight: 600 }}>{val}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderTable = (items, fields) => {
+    const visibleFields = fields.filter(f => items.some(it => it[f.key]));
     let totalDebit = 0, totalCredit = 0;
     items.forEach(it => {
       totalDebit += parseFloat(it.DebitAmountInTransCrcy || 0);
       totalCredit += parseFloat(it.CreditAmountInTransCrcy || 0);
     });
-
     return (
-      <div style={{ fontSize: '12px' }}>
-        {/* Document Header — FB03 style grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '2px 16px', padding: '8px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e5e9' }}>
-          {DOC_HEADER_FIELDS.map(f => {
-            let val = hdr[f.key] || '';
-            if (f.key.includes('Date')) val = fmtDate(val);
-            if (!val) return null;
-            return (
-              <div key={f.key} style={{ display: 'flex', gap: '6px', padding: '1px 0' }}>
-                <span style={{ color: '#6b7280', fontWeight: 500, minWidth: '100px', fontSize: '11px' }}>{f.label}:</span>
-                <span style={{ fontWeight: 600, fontSize: '11px' }}>{val}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Line Items Table */}
-        <div style={{ overflow: 'auto', maxHeight: '280px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-            <thead>
-              <tr style={{ background: '#edf2f7' }}>
-                {LINE_ITEM_FIELDS.filter(f => items.some(it => it[f.key])).map(f => (
-                  <th key={f.key} style={{ padding: '5px 8px', textAlign: f.align || 'left', fontWeight: 600, color: '#4a5568', whiteSpace: 'nowrap', borderBottom: '2px solid #cbd5e0', fontSize: '10px', textTransform: 'uppercase' }}>{f.label}</th>
+      <div style={{ overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+          <thead>
+            <tr style={{ background: '#edf2f7' }}>
+              {visibleFields.map(f => (
+                <th key={f.key} style={{ padding: '4px 6px', textAlign: f.align || 'left', fontWeight: 600, color: '#4a5568', whiteSpace: 'nowrap', borderBottom: '2px solid #cbd5e0', fontSize: '10px', textTransform: 'uppercase' }}>{f.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, idx) => (
+              <tr key={idx} style={{ borderBottom: '1px solid #eef0f3', background: idx % 2 === 0 ? '#fff' : '#fafbfc' }}>
+                {visibleFields.map(f => (
+                  <td key={f.key} style={{ padding: '3px 6px', whiteSpace: 'nowrap', textAlign: f.align || 'left', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
+                    {f.isAmount ? fmtAmt(item[f.key]) : f.isDate ? fmtDate(item[f.key]) : item[f.key] || ''}
+                  </td>
                 ))}
               </tr>
-            </thead>
-            <tbody>
-              {items.map((item, idx) => (
-                <tr key={idx} style={{ borderBottom: '1px solid #eef0f3', background: idx % 2 === 0 ? '#fff' : '#fafbfc' }}>
-                  {LINE_ITEM_FIELDS.filter(f => items.some(it => it[f.key])).map(f => (
-                    <td key={f.key} style={{ padding: '4px 8px', whiteSpace: 'nowrap', textAlign: f.align || 'left', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
-                      {f.isAmount ? fmtAmt(item[f.key]) : item[f.key] || ''}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
+            ))}
+          </tbody>
+          {(totalDebit > 0 || totalCredit > 0) && (
             <tfoot>
               <tr style={{ background: '#edf2f7', fontWeight: 700 }}>
-                {LINE_ITEM_FIELDS.filter(f => items.some(it => it[f.key])).map(f => (
-                  <td key={f.key} style={{ padding: '5px 8px', textAlign: f.align || 'left', borderTop: '2px solid #cbd5e0', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
+                {visibleFields.map(f => (
+                  <td key={f.key} style={{ padding: '4px 6px', textAlign: f.align || 'left', borderTop: '2px solid #cbd5e0', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
                     {f.key === 'DebitAmountInTransCrcy' ? fmtAmt(totalDebit) : ''}
                     {f.key === 'CreditAmountInTransCrcy' ? fmtAmt(totalCredit) : ''}
-                    {f.key === 'AccountingDocumentItem' ? `${items.length} items` : ''}
+                    {f.key === 'AccountingDocumentItem' || f.key === 'DOCLN' ? `${items.length}` : ''}
                   </td>
                 ))}
               </tr>
             </tfoot>
-          </table>
-        </div>
+          )}
+        </table>
+      </div>
+    );
+  };
+
+  const renderDocumentFB03 = (docData, objectType) => {
+    if (!docData?.items || docData.items.length === 0) {
+      return <div style={{ padding: '10px', color: '#6b7280', fontSize: '12px' }}>No data returned from SAP</div>;
+    }
+    const hdr = docData.header || docData.items[0];
+    const docKey = `${objectType}_${hdr?.AccountingDocument || ''}`;
+
+    return (
+      <div style={{ fontSize: '12px' }}>
+        {/* Cash Journal Header (if Cash Document) */}
+        {docData.cashJournal && (
+          <div style={{ padding: '6px 12px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+            <div style={{ fontWeight: 600, fontSize: '11px', color: '#166534', marginBottom: '2px' }}>Cash Journal</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1px 12px', fontSize: '11px' }}>
+              {[
+                { label: 'Cash Journal', val: docData.cashJournal.CashJournal },
+                { label: 'Business Trans.', val: docData.cashJournal.BusinessTransaction },
+                { label: 'Amount', val: fmtAmt(docData.cashJournal.Amount) },
+                { label: 'Currency', val: docData.cashJournal.Currency },
+                { label: 'Tax Amount', val: fmtAmt(docData.cashJournal.TaxAmount) },
+                { label: 'Bank Account', val: docData.cashJournal.BankAccount },
+                { label: 'Status', val: docData.cashJournal.PostingStatus },
+                { label: 'Date', val: fmtDate(docData.cashJournal.DocumentDate) },
+                { label: 'Created By', val: docData.cashJournal.CreatedBy },
+              ].filter(f => f.val && f.val !== '0.00').map(f => (
+                <div key={f.label} style={{ display: 'flex', gap: '4px' }}>
+                  <span style={{ color: '#4ade80', minWidth: '90px' }}>{f.label}:</span>
+                  <span style={{ fontWeight: 600, color: '#166534' }}>{f.val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Document Header — FB03 style */}
+        {renderHeaderGrid(hdr, DOC_HEADER_ROW1)}
+        {renderHeaderGrid(hdr, DOC_HEADER_ROW2)}
+        <div style={{ borderBottom: '1px solid #e2e5e9' }} />
+
+        {/* Line Items */}
+        {renderTable(docData.items, LINE_ITEM_FIELDS)}
+
+        {/* ACDOCA Registers — collapsible */}
+        {docData.acdoca?.length > 0 && (
+          <div style={{ borderTop: '1px solid #e2e5e9' }}>
+            <button
+              onClick={() => setExpandedAcdoca(prev => ({ ...prev, [docKey]: !prev[docKey] }))}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: 600, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left' }}
+            >
+              <span>{expandedAcdoca[docKey] ? '▾' : '▸'}</span>
+              <span>ACDOCA Universal Journal ({docData.acdoca.length} entries)</span>
+            </button>
+            {expandedAcdoca[docKey] && renderTable(docData.acdoca, ACDOCA_FIELDS)}
+          </div>
+        )}
 
         {/* Footer */}
         <div style={{ padding: '4px 12px', fontSize: '10px', color: '#9ca3af', borderTop: '1px solid #eef0f3', display: 'flex', gap: '12px' }}>
