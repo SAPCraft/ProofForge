@@ -67,6 +67,124 @@ export default function Settings() {
           </button>
         )}
       </div>
+
+      {/* Local Proxy */}
+      <LocalProxySection />
+    </div>
+  );
+}
+
+function LocalProxySection() {
+  const [status, setStatus] = useState('checking'); // checking, online, offline
+
+  const checkProxy = async () => {
+    setStatus('checking');
+    try {
+      const res = await fetch('http://localhost:8585/health', { signal: AbortSignal.timeout(2000) });
+      if (res.ok) { setStatus('online'); return; }
+    } catch {}
+    setStatus('offline');
+  };
+
+  React.useEffect(() => { checkProxy(); const t = setInterval(checkProxy, 10000); return () => clearInterval(t); }, []);
+
+  const downloadProxy = () => {
+    const ps1 = `#Requires -Version 5.1
+# ProofForge SAP Local Proxy
+# Double-click to run, or: powershell -ExecutionPolicy Bypass -File proofforge-proxy.ps1
+
+$host.UI.RawUI.WindowTitle = "ProofForge SAP Proxy"
+
+Write-Host ""
+Write-Host "  ◆ ProofForge SAP Local Proxy" -ForegroundColor Cyan
+Write-Host "  ════════════════════════════════" -ForegroundColor DarkGray
+Write-Host ""
+
+# Check Node.js
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host "  ✗ Node.js is not installed." -ForegroundColor Red
+    Write-Host "  Download from: https://nodejs.org/" -ForegroundColor Yellow
+    Write-Host ""
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+$nodeVersion = node --version
+Write-Host "  ✓ Node.js $nodeVersion" -ForegroundColor Green
+Write-Host "  ✓ Starting proxy on http://localhost:8585" -ForegroundColor Green
+Write-Host "  ✓ Keep this window open while using ProofForge" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Press Ctrl+C to stop." -ForegroundColor DarkGray
+Write-Host ""
+
+$proxyCode = @'
+const http=require("http"),https=require("https");
+const s=http.createServer((q,r)=>{
+  r.setHeader("Access-Control-Allow-Origin","*");
+  r.setHeader("Access-Control-Allow-Methods","GET,POST,PUT,DELETE,OPTIONS");
+  r.setHeader("Access-Control-Allow-Headers","Authorization,Content-Type,Accept,X-SAP-Target");
+  if(q.method==="OPTIONS"){r.writeHead(204);r.end();return}
+  if(q.url==="/health"){r.writeHead(200,{"Content-Type":"application/json"});r.end(JSON.stringify({status:"ok",proxy:"ProofForge SAP Local Proxy"}));return}
+  const t=q.headers["x-sap-target"];
+  if(!t){r.writeHead(400);r.end(JSON.stringify({error:"Missing X-SAP-Target"}));return}
+  const u=t+q.url;
+  const ts=new Date().toLocaleTimeString();
+  console.log(ts+" [PROXY] "+q.method+" "+u);
+  const m=u.startsWith("https")?https:http;
+  const p=m.request(u,{method:q.method,headers:{...q.headers,host:new URL(t).host},rejectUnauthorized:false},z=>{
+    const h={...z.headers};h["access-control-allow-origin"]="*";
+    console.log(ts+" [PROXY] <- "+z.statusCode);
+    r.writeHead(z.statusCode,h);z.pipe(r)
+  });
+  p.on("error",e=>{console.error(ts+" [PROXY] Error: "+e.message);r.writeHead(502);r.end(JSON.stringify({error:e.message}))});
+  p.setTimeout(30000,()=>{p.destroy()});
+  q.pipe(p)
+});
+s.listen(8585,()=>{console.log("  ✓ Proxy ready on http://localhost:8585\\n")});
+'@
+
+node -e $proxyCode
+
+Read-Host "Press Enter to exit"
+`;
+    const blob = new Blob([ps1], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'proofforge-proxy.ps1';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ marginBottom: '24px' }}>
+      <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#4c6fff' }}>SAP Local Proxy</h3>
+      <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px' }}>
+        To fetch SAP documents, a small proxy must run on your local machine (where VPN is connected).
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', border: '1px solid #e2e5e9', borderRadius: '6px', background: status === 'online' ? '#f0fdf4' : '#fafbfc' }}>
+        <div style={{
+          width: '10px', height: '10px', borderRadius: '50%',
+          background: status === 'online' ? '#2e7d32' : status === 'checking' ? '#f59e0b' : '#dc3545',
+          boxShadow: status === 'online' ? '0 0 6px #2e7d32' : 'none',
+        }} />
+        <span style={{ fontSize: '13px', fontWeight: 500 }}>
+          {status === 'online' ? 'Proxy is running' : status === 'checking' ? 'Checking...' : 'Proxy is not running'}
+        </span>
+        <span style={{ fontSize: '11px', color: '#6b7280' }}>localhost:8585</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+          <button className="btn btn-sm btn-ghost" onClick={checkProxy}>Check</button>
+          <button className="btn btn-sm btn-primary" onClick={downloadProxy}>
+            ⬇ Download proofforge-proxy.ps1
+          </button>
+        </div>
+      </div>
+      {status === 'offline' && (
+        <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '8px', lineHeight: '1.6' }}>
+          <strong>How to start:</strong> Download the .ps1 file → right-click → "Run with PowerShell" → keep the window open.
+          Requires <a href="https://nodejs.org/" target="_blank" rel="noopener">Node.js</a> on your machine.
+        </div>
+      )}
     </div>
   );
 }
