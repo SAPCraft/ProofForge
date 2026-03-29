@@ -258,8 +258,12 @@ export default function RunExecute() {
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:rfc="urn:sap-com:document:sap:rfc:functions">
 <soap:Body><rfc:RFC_READ_TABLE>
 <QUERY_TABLE>${table}</QUERY_TABLE><DELIMITER>|</DELIMITER>
+<NO_DATA></NO_DATA>
+<ROWSKIPS>0</ROWSKIPS>
+<ROWCOUNT>0</ROWCOUNT>
 <OPTIONS>${whereXml}</OPTIONS>
 <FIELDS>${fieldsXml}</FIELDS>
+<DATA></DATA>
 </rfc:RFC_READ_TABLE></soap:Body></soap:Envelope>`;
 
     const res = await fetch(`/sap/bc/soap/rfc?sap-client=${sapClient}`, {
