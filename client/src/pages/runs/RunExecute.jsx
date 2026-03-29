@@ -269,47 +269,32 @@ export default function RunExecute() {
     }
     const xml = await res.text();
     console.log('[ProofForge] SOAP response length:', xml.length);
-    console.log('[ProofForge] SOAP response (first 2000):', xml.slice(0, 2000));
+    console.log('[ProofForge] SOAP XML:', xml.length < 5000 ? xml : xml.slice(0, 3000) + '\n...(truncated)');
     // Parse response: extract FIELDS and DATA
     const parser = new DOMParser();
     const doc = parser.parseFromString(xml, 'text/xml');
     const faultNode = doc.querySelector('faultstring');
     if (faultNode) throw new Error(`SAP RFC error: ${faultNode.textContent}`);
 
-    // Try multiple selector strategies (SAP namespaces vary)
-    let fieldNodes = doc.querySelectorAll('FIELDS item FIELDNAME');
-    let dataNodes = doc.querySelectorAll('DATA item WA');
-    console.log('[ProofForge] Selector 1 - FIELDS:', fieldNodes.length, 'DATA:', dataNodes.length);
-
-    if (fieldNodes.length === 0) {
-      // Try with namespace-aware approach
-      const allElements = doc.getElementsByTagName('*');
-      const fieldNames2 = [];
-      const dataWa = [];
-      for (const el of allElements) {
-        if (el.localName === 'FIELDNAME' || el.nodeName.endsWith(':FIELDNAME')) fieldNames2.push(el.textContent);
-        if (el.localName === 'WA' || el.nodeName.endsWith(':WA')) dataWa.push(el.textContent);
-      }
-      console.log('[ProofForge] Selector 2 - fields:', fieldNames2.length, 'data:', dataWa.length);
-      if (fieldNames2.length > 0) {
-        return dataWa.map(wa => {
-          const vals = wa.split('|');
-          const row = {};
-          fieldNames2.forEach((f, i) => { row[f] = (vals[i] || '').trim(); });
-          return row;
-        });
-      }
+    // Parse with namespace-aware approach (SAP uses SOAP-ENV: prefixes)
+    const allElements = doc.getElementsByTagName('*');
+    const fieldNames = [];
+    const dataWa = [];
+    for (const el of allElements) {
+      const ln = el.localName || el.nodeName;
+      if (ln === 'FIELDNAME') fieldNames.push(el.textContent);
+      if (ln === 'WA') dataWa.push(el.textContent);
     }
+    console.log('[ProofForge] Parsed fields:', fieldNames.length, fieldNames);
+    console.log('[ProofForge] Data rows (WA):', dataWa.length);
+    if (dataWa.length > 0) console.log('[ProofForge] First WA:', dataWa[0]);
 
-    const fieldNames = Array.from(fieldNodes).map(n => n.textContent);
-    console.log('[ProofForge] Parsed fields:', fieldNames);
-    const rows = Array.from(dataNodes).map(n => {
-      const vals = n.textContent.split('|');
+    return dataWa.map(wa => {
+      const vals = wa.split('|');
       const row = {};
       fieldNames.forEach((f, i) => { row[f] = (vals[i] || '').trim(); });
       return row;
     });
-    return rows;
   };
 
   // Key fields to show for FI document line items
