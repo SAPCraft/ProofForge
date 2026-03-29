@@ -72,37 +72,50 @@ export default function RunExecute() {
 
     const isLocalProxy = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const client = sys.client || '000';
-    const odataPath = `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50`;
     const auth = btoa(`${sys.user}:${sys.password}`);
 
+    // Try multiple OData services - different SAP systems have different ones activated
+    const ODATA_SERVICES = [
+      { name: 'API_JOURNALENTRY', path: `/sap/opu/odata/sap/API_JOURNALENTRY_SRV/A_JournalEntryItemBasic?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50` },
+      { name: 'FAC_GL_DOCUMENT', path: `/sap/opu/odata/sap/FAC_GL_DOCUMENT_SRV/GLDocumentHeaderSet('${objectId}')/Items?sap-client=${client}&$format=json` },
+      { name: 'API_OPLACCTGDOCITEMCUBE', path: `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50` },
+      { name: 'C_JOURNALENTRYITEM_CDS', path: `/sap/opu/odata/sap/C_JOURNALENTRYITEMQUERY_CDS/C_JournalEntryItemQuery?$filter=AccountingDocument eq '${objectId}'&sap-client=${client}&$format=json&$top=50` },
+    ];
+
     if (isLocalProxy) {
-      // On local proxy: send SAP request directly through same origin
-      console.log('[ProofForge] Local proxy mode — fetching SAP via same origin');
-      console.log('[ProofForge] SAP target:', sys.base_url, 'Path:', odataPath);
-      try {
-        const res = await fetch(odataPath, {
-          headers: {
-            'Authorization': `Basic ${auth}`,
-            'Accept': 'application/json',
-            'X-SAP-Target': sys.base_url,
-          },
-        });
-        console.log('[ProofForge] SAP response:', res.status);
-        if (!res.ok) {
-          const errText = await res.text();
-          console.log('[ProofForge] SAP error:', errText.slice(0, 500));
-          throw new Error(`SAP ${res.status}: ${errText.slice(0, 200)}`);
+      console.log('[ProofForge] Local proxy mode — trying SAP OData services...');
+      let lastError = '';
+      for (const svc of ODATA_SERVICES) {
+        console.log(`[ProofForge] Trying ${svc.name}...`);
+        try {
+          const res = await fetch(svc.path, {
+            headers: {
+              'Authorization': `Basic ${auth}`,
+              'Accept': 'application/json',
+              'X-SAP-Target': sys.base_url,
+            },
+          });
+          if (res.status === 401) { throw new Error('SAP authentication failed (401). Check user/password in Settings.'); }
+          if (!res.ok) {
+            const errText = await res.text();
+            console.log(`[ProofForge] ${svc.name}: ${res.status}`, errText.slice(0, 200));
+            lastError = `${svc.name}: ${res.status}`;
+            continue; // try next service
+          }
+          const data = await res.json();
+          const items = data?.d?.results || (data?.d ? [data.d] : []);
+          console.log(`[ProofForge] ${svc.name}: SUCCESS — ${items.length} items`);
+          const result = { items, fetched_at: new Date().toISOString(), service: svc.name };
+          setSapDocs((prev) => ({ ...prev, [key]: result }));
+          await saveSapPayload(objectType, objectId, result);
+          return; // success - stop trying
+        } catch (err) {
+          if (err.message.includes('401')) { setSapDocs((prev) => ({ ...prev, [key]: { error: err.message } })); return; }
+          console.log(`[ProofForge] ${svc.name}: ${err.message}`);
+          lastError = err.message;
         }
-        const data = await res.json();
-        console.log('[ProofForge] SAP items:', data?.d?.results?.length || 0);
-        const items = data?.d?.results || [];
-        const result = { items, fetched_at: new Date().toISOString() };
-        setSapDocs((prev) => ({ ...prev, [key]: result }));
-        await saveSapPayload(objectType, objectId, result);
-      } catch (err) {
-        console.error('[ProofForge] SAP fetch error:', err.message);
-        setSapDocs((prev) => ({ ...prev, [key]: { error: err.message } }));
       }
+      setSapDocs((prev) => ({ ...prev, [key]: { error: `No working OData service found. Last: ${lastError}` } }));
     } else {
       // On VPS: try server-side fetch
       console.log('[ProofForge] Remote mode — trying server-side SAP fetch');
