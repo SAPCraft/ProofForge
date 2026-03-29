@@ -201,77 +201,83 @@ export default function RunExecute() {
           }
         } catch (e) { console.log('[ProofForge] ACDOCA skip:', e.message); }
 
-        // 4. Cash Journal (if Cash Document type) — search TCJP (positions table) by doc number
+        // 4. Cash Journal (if Cash Document type) — TCJ_DOCUMENTS + TCJ_POSITIONS + TCJ_WTAX_ITEMS
         if (objectType === 'Cash Document') {
-          console.log('[ProofForge] Fetching Cash Journal data...');
+          console.log('[ProofForge] Fetching Cash Journal data from TCJ_* tables...');
+
+          // TCJ_DOCUMENTS — cash journal document header
           try {
-            // TCJP = cash journal positions, CJDOCNR = cash journal doc number
-            const tcjpRows = await fetchViaSoapRfc('TCJP',
-              ['BUKRS','CJNR','GJAHR','CJDOCNR','BUZEI','CJBV','CJHA','WAERS','CJSU','HKONT','KUNNR','LIFNR','PRCTR','KOSTL','SGTXT','ZUESSION','BUDAT','CPUDT','USNAM','BELNR'],
-              [`CJDOCNR EQ '${docNum}'`],
+            const docRows = await fetchViaSoapRfc('TCJ_DOCUMENTS',
+              ['COMP_CODE','CAJO_NUMBER','FISC_YEAR','DOC_NO','DOC_DATE','PSTNG_DATE','BUS_TRANSACT','BUS_ACT_GRP','CURRENCY','TOTAL_AMOUNT','NET_AMOUNT','TAX_AMOUNT','RECEIPT_NUM','CJ_DOC_STATUS','ACC_DOCUMENT','CREATED_BY','CREATED_ON','CHANGED_BY','CHANGED_ON','TEXT','ALLOC_NMBR'],
+              [`DOC_NO EQ '${docNum}'`],
               sys.base_url, client, auth
             );
-            console.log('[ProofForge] TCJP rows:', tcjpRows.length);
+            console.log('[ProofForge] TCJ_DOCUMENTS rows:', docRows.length);
 
-            if (tcjpRows.length > 0) {
-              const cj = tcjpRows[0];
+            if (docRows.length > 0) {
+              const d = docRows[0];
               result.cashJournal = {
-                CashJournal: cj.CJNR, CompanyCode: cj.BUKRS, FiscalYear: cj.GJAHR,
-                CashJournalDocNumber: cj.CJDOCNR,
-                PostingDate: cj.BUDAT, BusinessTransaction: cj.CJBV,
-                Amount: cj.CJHA, Currency: cj.WAERS,
-                TaxAmount: cj.CJSU, GLAccount: cj.HKONT,
-                Customer: cj.KUNNR, Supplier: cj.LIFNR,
-                ProfitCenter: cj.PRCTR, CostCenter: cj.KOSTL,
-                Text: cj.SGTXT, Assignment: cj.ZUESSION,
-                FIDocument: cj.BELNR,
-                CreatedBy: cj.USNAM, CreatedOn: cj.CPUDT,
+                CashJournal: d.CAJO_NUMBER, CompanyCode: d.COMP_CODE, FiscalYear: d.FISC_YEAR,
+                DocNumber: d.DOC_NO, DocumentDate: d.DOC_DATE, PostingDate: d.PSTNG_DATE,
+                BusinessTransaction: d.BUS_TRANSACT, BusinessActionGroup: d.BUS_ACT_GRP,
+                Currency: d.CURRENCY, TotalAmount: d.TOTAL_AMOUNT,
+                NetAmount: d.NET_AMOUNT, TaxAmount: d.TAX_AMOUNT,
+                ReceiptNumber: d.RECEIPT_NUM, Status: d.CJ_DOC_STATUS,
+                FIDocument: d.ACC_DOCUMENT,
+                Text: d.TEXT, Assignment: d.ALLOC_NMBR,
+                CreatedBy: d.CREATED_BY, CreatedOn: d.CREATED_ON,
+                ChangedBy: d.CHANGED_BY, ChangedOn: d.CHANGED_ON,
               };
-              console.log('[ProofForge] Cash Journal:', cj.CJNR, 'FI Doc:', cj.BELNR);
-
-              // Build Cash Document items from TCJP
-              result.items = tcjpRows.map(p => ({
-                AccountingDocumentItem: p.BUZEI,
-                GLAccount: p.HKONT,
-                AmountInCompanyCodeCurrency: p.CJHA,
-                TransactionCurrency: p.WAERS,
-                Customer: p.KUNNR, Supplier: p.LIFNR,
-                ProfitCenter: p.PRCTR, CostCenter: p.KOSTL,
-                ItemText: p.SGTXT, AssignmentReference: p.ZUESSION,
-              }));
-
-              // Build header from Cash Journal data
               result.header = {
-                CompanyCode: cj.BUKRS, FiscalYear: cj.GJAHR,
-                AccountingDocument: cj.CJDOCNR,
-                PostingDate: cj.BUDAT,
-                TransactionCurrency: cj.WAERS,
-                DocumentHeaderText: cj.CJBV,
+                CompanyCode: d.COMP_CODE, FiscalYear: d.FISC_YEAR,
+                AccountingDocument: d.DOC_NO,
+                PostingDate: d.PSTNG_DATE, DocumentDate: d.DOC_DATE,
+                TransactionCurrency: d.CURRENCY,
+                DocumentHeaderText: d.BUS_TRANSACT,
+                Reference: d.RECEIPT_NUM,
               };
+              console.log('[ProofForge] Cash Journal:', d.CAJO_NUMBER, 'FI Doc:', d.ACC_DOCUMENT);
             }
-          } catch (e) {
-            console.log('[ProofForge] TCJP failed:', e.message);
-            // Fallback — try TCJD with different key
-            try {
-              const tcjdRows = await fetchViaSoapRfc('TCJD',
-                ['BUKRS','CJNR','GJAHR','BELNR','CJDT','CJBV','CJHA','CJSU','CJBK','CJBKA','CJBS','WAERS','CPUDT','USNAM'],
-                [`BELNR EQ '${docNum}'`],
-                sys.base_url, client, auth
-              );
-              console.log('[ProofForge] TCJD rows:', tcjdRows.length);
-              if (tcjdRows.length > 0) {
-                const cj = tcjdRows[0];
-                result.cashJournal = {
-                  CashJournal: cj.CJNR, CompanyCode: cj.BUKRS, FiscalYear: cj.GJAHR,
-                  DocumentDate: cj.CJDT, BusinessTransaction: cj.CJBV,
-                  Amount: cj.CJHA, Currency: cj.WAERS,
-                  TaxAmount: cj.CJSU, BankAccount: cj.CJBK,
-                  PostingStatus: cj.CJBS,
-                  CreatedBy: cj.USNAM, CreatedOn: cj.CPUDT,
-                };
-              }
-            } catch (e2) { console.log('[ProofForge] TCJD also failed:', e2.message); }
-          }
+          } catch (e) { console.log('[ProofForge] TCJ_DOCUMENTS:', e.message); }
+
+          // TCJ_POSITIONS — cash journal line items
+          try {
+            const posRows = await fetchViaSoapRfc('TCJ_POSITIONS',
+              ['COMP_CODE','CAJO_NUMBER','FISC_YEAR','DOC_NO','ITEM_NO','GL_ACCOUNT','AMOUNT_LC','AMOUNT_TC','CURRENCY','CUSTOMER','VENDOR','PROFIT_CTR','COST_CENTER','ORDERID','SALES_ORD','S_ORD_ITEM','BUS_AREA','FUND_CTR','FUND','FUNC_AREA','TAX_CODE','TEXT','ALLOC_NMBR'],
+              [`DOC_NO EQ '${docNum}'`],
+              sys.base_url, client, auth
+            );
+            console.log('[ProofForge] TCJ_POSITIONS rows:', posRows.length);
+
+            if (posRows.length > 0) {
+              result.items = posRows.map(p => ({
+                AccountingDocumentItem: p.ITEM_NO,
+                GLAccount: p.GL_ACCOUNT,
+                AmountInCompanyCodeCurrency: p.AMOUNT_LC,
+                AmountInTransactionCurrency: p.AMOUNT_TC,
+                TransactionCurrency: p.CURRENCY,
+                Customer: p.CUSTOMER, Supplier: p.VENDOR,
+                ProfitCenter: p.PROFIT_CTR, CostCenter: p.COST_CENTER,
+                InternalOrder: p.ORDERID,
+                SalesDocument: p.SALES_ORD, SalesDocItem: p.S_ORD_ITEM,
+                BusinessArea: p.BUS_AREA, TaxCode: p.TAX_CODE,
+                ItemText: p.TEXT, AssignmentReference: p.ALLOC_NMBR,
+              }));
+            }
+          } catch (e) { console.log('[ProofForge] TCJ_POSITIONS:', e.message); }
+
+          // TCJ_WTAX_ITEMS — withholding tax items
+          try {
+            const wtaxRows = await fetchViaSoapRfc('TCJ_WTAX_ITEMS',
+              ['COMP_CODE','CAJO_NUMBER','FISC_YEAR','DOC_NO','ITEM_NO','WTAX_TYPE','WTAX_CODE','WTAX_BASE','WTAX_AMOUNT','CURRENCY'],
+              [`DOC_NO EQ '${docNum}'`],
+              sys.base_url, client, auth
+            );
+            console.log('[ProofForge] TCJ_WTAX_ITEMS rows:', wtaxRows.length);
+            if (wtaxRows.length > 0) {
+              result.cashJournalTax = wtaxRows;
+            }
+          } catch (e) { console.log('[ProofForge] TCJ_WTAX_ITEMS:', e.message); }
         }
 
         // If BKPF was empty but ACDOCA has data, build header and items from ACDOCA
@@ -345,6 +351,7 @@ export default function RunExecute() {
       header: fetchedData.header || null,
       acdoca: fetchedData.acdoca || [],
       cashJournal: fetchedData.cashJournal || null,
+      cashJournalTax: fetchedData.cashJournalTax || null,
       service: fetchedData.service || null,
       fiori_link: fetchedData.fiori_link,
       fetched_at: fetchedData.fetched_at,
@@ -489,14 +496,21 @@ export default function RunExecute() {
     { key: 'BaselineDate', label: 'Baseline', isDate: true },
   ];
 
-  // Cash Document: single summary view (no debit/credit columns)
+  // Cash Document: line items from TCJ_POSITIONS
   const CASH_DOC_LINE_FIELDS = [
     { key: 'AccountingDocumentItem', label: 'Itm' },
-    { key: 'PostingKey', label: 'PK' },
     { key: 'GLAccount', label: 'G/L Account' },
-    { key: 'AmountInCompanyCodeCurrency', label: 'Amount', align: 'right', isAmount: true },
+    { key: 'AmountInTransactionCurrency', label: 'Amount TC', align: 'right', isAmount: true },
+    { key: 'AmountInCompanyCodeCurrency', label: 'Amount LC', align: 'right', isAmount: true },
+    { key: 'TransactionCurrency', label: 'Curr' },
+    { key: 'Customer', label: 'Customer' },
+    { key: 'Supplier', label: 'Supplier' },
     { key: 'ProfitCenter', label: 'Profit Ctr' },
     { key: 'CostCenter', label: 'Cost Ctr' },
+    { key: 'InternalOrder', label: 'Order' },
+    { key: 'SalesDocument', label: 'Sales Doc' },
+    { key: 'TaxCode', label: 'Tax' },
+    { key: 'BusinessArea', label: 'Bus. Area' },
     { key: 'AssignmentReference', label: 'Assignment' },
     { key: 'ItemText', label: 'Text' },
   ];
@@ -597,26 +611,50 @@ export default function RunExecute() {
       <div style={{ fontSize: '12px' }}>
         {/* Cash Journal Header (if Cash Document) */}
         {docData.cashJournal && (
-          <div style={{ padding: '6px 12px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
-            <div style={{ fontWeight: 600, fontSize: '11px', color: '#166534', marginBottom: '2px' }}>Cash Journal</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1px 12px', fontSize: '11px' }}>
+          <div style={{ padding: '8px 12px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+            <div style={{ fontWeight: 600, fontSize: '11px', color: '#166534', marginBottom: '4px' }}>Cash Journal Document</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1px 12px', fontSize: '11px' }}>
               {[
-                { label: 'Cash Journal', val: docData.cashJournal.CashJournal },
+                { label: 'Cash Journal', val: stripZeros(docData.cashJournal.CashJournal) },
+                { label: 'Doc Number', val: stripZeros(docData.cashJournal.DocNumber) },
                 { label: 'Business Trans.', val: docData.cashJournal.BusinessTransaction },
-                { label: 'Amount', val: fmtAmt(docData.cashJournal.Amount) },
-                { label: 'Currency', val: docData.cashJournal.Currency },
+                { label: 'Action Group', val: docData.cashJournal.BusinessActionGroup },
+                { label: 'Total Amount', val: fmtAmt(docData.cashJournal.TotalAmount) },
+                { label: 'Net Amount', val: fmtAmt(docData.cashJournal.NetAmount) },
                 { label: 'Tax Amount', val: fmtAmt(docData.cashJournal.TaxAmount) },
-                { label: 'Bank Account', val: docData.cashJournal.BankAccount },
-                { label: 'Status', val: docData.cashJournal.PostingStatus },
-                { label: 'Date', val: fmtDate(docData.cashJournal.DocumentDate) },
+                { label: 'Currency', val: docData.cashJournal.Currency },
+                { label: 'Posting Date', val: fmtDate(docData.cashJournal.PostingDate) },
+                { label: 'Document Date', val: fmtDate(docData.cashJournal.DocumentDate) },
+                { label: 'Receipt No.', val: stripZeros(docData.cashJournal.ReceiptNumber) },
+                { label: 'FI Document', val: stripZeros(docData.cashJournal.FIDocument) },
+                { label: 'Status', val: docData.cashJournal.Status },
+                { label: 'Text', val: docData.cashJournal.Text },
+                { label: 'Assignment', val: docData.cashJournal.Assignment },
                 { label: 'Created By', val: docData.cashJournal.CreatedBy },
-              ].filter(f => f.val && f.val !== '0.00').map(f => (
+                { label: 'Created On', val: fmtDate(docData.cashJournal.CreatedOn) },
+              ].filter(f => f.val && f.val !== '0.00' && f.val !== '0').map(f => (
                 <div key={f.label} style={{ display: 'flex', gap: '4px' }}>
-                  <span style={{ color: '#4ade80', minWidth: '90px' }}>{f.label}:</span>
+                  <span style={{ color: '#16a34a', minWidth: '100px' }}>{f.label}:</span>
                   <span style={{ fontWeight: 600, color: '#166534' }}>{f.val}</span>
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Withholding Tax Items (if Cash Document has them) */}
+        {docData.cashJournalTax?.length > 0 && (
+          <div style={{ padding: '6px 12px', background: '#fffbeb', borderBottom: '1px solid #fde68a', fontSize: '11px' }}>
+            <div style={{ fontWeight: 600, color: '#92400e', marginBottom: '2px' }}>Withholding Tax</div>
+            {docData.cashJournalTax.map((t, i) => (
+              <div key={i} style={{ display: 'flex', gap: '12px' }}>
+                <span>Type: {t.WTAX_TYPE}</span>
+                <span>Code: {t.WTAX_CODE}</span>
+                <span>Base: {fmtAmt(t.WTAX_BASE)}</span>
+                <span>Amount: {fmtAmt(t.WTAX_AMOUNT)}</span>
+                <span>{t.CURRENCY}</span>
+              </div>
+            ))}
           </div>
         )}
 
