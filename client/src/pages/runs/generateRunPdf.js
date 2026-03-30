@@ -1,5 +1,5 @@
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // Format SAP date YYYYMMDD → DD.MM.YYYY
 const fmtDate = (d) => d && d.length === 8 ? `${d.slice(6,8)}.${d.slice(4,6)}.${d.slice(0,4)}` : d || '';
@@ -160,7 +160,7 @@ export default function generateRunPdf(run, sapDocs) {
     ];
   });
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
     head: [['#', 'Step Name', 'Status', 'Attempts']],
@@ -391,7 +391,7 @@ export default function generateRunPdf(run, sapDocs) {
                 ]);
               }
 
-              doc.autoTable({
+              autoTable(doc, {
                 startY: y,
                 margin: { left: margin + 2, right: margin + 2 },
                 head,
@@ -413,7 +413,7 @@ export default function generateRunPdf(run, sapDocs) {
               doc.text(`ACDOCA Universal Journal (${docData.acdoca.length} entries)`, margin + 2, y);
               y += 4;
 
-              doc.autoTable({
+              autoTable(doc, {
                 startY: y,
                 margin: { left: margin + 2, right: margin + 2 },
                 head: [['Ledger', 'Line', 'Account', 'D/C', 'Trans Amt', 'Local Amt', 'Curr']],
@@ -441,7 +441,7 @@ export default function generateRunPdf(run, sapDocs) {
         doc.text('Validations:', margin + 2, y);
         y += 4;
 
-        doc.autoTable({
+        autoTable(doc, {
           startY: y,
           margin: { left: margin + 2, right: margin + 2 },
           head: [['Validation', 'Status', 'Comment']],

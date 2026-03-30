@@ -6,7 +6,7 @@ import generateRunPdf from './generateRunPdf.js';
 
 const STEP_STATUSES = ['not_started', 'in_progress', 'passed', 'passed_with_comments', 'failed', 'blocked', 'skipped'];
 const VAL_STATUSES = ['pending', 'passed', 'failed', 'waived'];
-const RUN_STATUSES = ['planned', 'in_progress', 'completed', 'blocked', 'cancelled'];
+const RUN_STATUSES = ['planned', 'in_progress', 'passed', 'passed_with_comments', 'failed', 'completed', 'blocked', 'cancelled'];
 
 export default function RunExecute() {
   const { id } = useParams();
