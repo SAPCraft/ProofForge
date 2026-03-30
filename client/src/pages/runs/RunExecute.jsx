@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../../api/client.js';
 import StatusBadge from '../../components/StatusBadge.jsx';
+import generateRunPdf from './generateRunPdf.js';
 
 const STEP_STATUSES = ['not_started', 'in_progress', 'passed', 'passed_with_comments', 'failed', 'blocked', 'skipped'];
 const VAL_STATUSES = ['pending', 'passed', 'failed', 'waived'];
@@ -876,6 +877,13 @@ export default function RunExecute() {
             {RUN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           {run.result && <span className="result-tag">Result: <StatusBadge status={run.result} /></span>}
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => generateRunPdf(run, sapDocs)}
+            title="Export test run report as PDF"
+          >
+            PDF
+          </button>
         </div>
       </div>
 
