@@ -318,18 +318,21 @@ export default function generateRunPdf(run, sapDocs) {
               const hdrFields = [
                 ['Company Code', stripZeros(docData.header.CompanyCode)],
                 ['Doc Type', docData.header.AccountingDocumentType],
+                ['Fiscal Year', docData.header.FiscalYear],
+                ['Period', docData.header.Period],
                 ['Posting Date', fmtDate(docData.header.PostingDate)],
                 ['Document Date', fmtDate(docData.header.DocumentDate)],
                 ['Currency', docData.header.TransactionCurrency],
-                ['Fiscal Year', docData.header.FiscalYear],
-                ['Period', docData.header.Period],
+                ['Exch. Rate', docData.header.ExchangeRate],
                 ['Header Text', docData.header.DocumentHeaderText],
                 ['Reference', docData.header.Reference],
+                ['TCode', docData.header.TransactionCode],
                 ['Origin Type', docData.header.ObjectType],
                 ['Origin Key', docData.header.ObjectKey],
                 ['Created By', docData.header.CreatedBy],
-                ['TCode', docData.header.TransactionCode],
-              ].filter(([, v]) => v && v !== '0' && v !== '000');
+                ['Created On', fmtDate(docData.header.CreatedOn)],
+                ['Reversal Doc', docData.header.ReversalDocument],
+              ].filter(([, v]) => v && v !== '0' && v !== '000' && v !== '0.00000');
 
               if (hdrFields.length > 0) {
                 checkPage(12);
@@ -377,18 +380,24 @@ export default function generateRunPdf(run, sapDocs) {
                   it.ItemText || '',
                 ]);
               } else {
-                head = [['Itm', 'PK', 'G/L Account', 'Debit', 'Credit', 'Tax', 'Profit Ctr', 'Cost Ctr', 'Text']];
-                body = docData.items.map(it => [
-                  stripZeros(it.AccountingDocumentItem),
-                  it.PostingKey || '',
-                  stripZeros(it.GLAccount),
-                  fmtAmt(it.DebitAmountInTransCrcy),
-                  fmtAmt(it.CreditAmountInTransCrcy),
-                  it.TaxCode || '',
-                  stripZeros(it.ProfitCenter),
-                  stripZeros(it.CostCenter),
-                  it.ItemText || '',
-                ]);
+                // Build columns dynamically — include name columns only if data has them
+                const hasGLName = docData.items.some(it => it.GLAccountName);
+                const hasCust = docData.items.some(it => it.Customer && it.Customer.replace(/0/g, ''));
+                const hasSupp = docData.items.some(it => it.Supplier && it.Supplier.replace(/0/g, ''));
+                const cols = ['Itm', 'PK', 'G/L Account'];
+                if (hasGLName) cols.push('Account Name');
+                if (hasCust) { cols.push('Customer'); cols.push('Name'); }
+                if (hasSupp) { cols.push('Supplier'); cols.push('Name'); }
+                cols.push('Debit', 'Credit', 'Tax', 'Profit Ctr', 'Text');
+                head = [cols];
+                body = docData.items.map(it => {
+                  const row = [stripZeros(it.AccountingDocumentItem), it.PostingKey || '', stripZeros(it.GLAccount)];
+                  if (hasGLName) row.push(it.GLAccountName || '');
+                  if (hasCust) { row.push(stripZeros(it.Customer)); row.push(it.CustomerName || ''); }
+                  if (hasSupp) { row.push(stripZeros(it.Supplier)); row.push(it.SupplierName || ''); }
+                  row.push(fmtAmt(it.DebitAmountInTransCrcy), fmtAmt(it.CreditAmountInTransCrcy), it.TaxCode || '', stripZeros(it.ProfitCenter), it.ItemText || '');
+                  return row;
+                });
               }
 
               autoTable(doc, {

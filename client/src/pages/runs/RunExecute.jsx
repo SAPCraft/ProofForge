@@ -180,15 +180,57 @@ export default function RunExecute() {
           );
           console.log('[ProofForge] BSEG rows:', bsegRows.length);
 
+          // 2b. Resolve names: G/L accounts (SKAT), customers (KNA1), suppliers (LFA1)
+          const glAccounts = [...new Set(bsegRows.map(r => r.HKONT).filter(Boolean))];
+          const customers = [...new Set(bsegRows.map(r => r.KUNNR).filter(v => v && v.replace(/0/g, '')))];
+          const suppliers = [...new Set(bsegRows.map(r => r.LIFNR).filter(v => v && v.replace(/0/g, '')))];
+          const names = { gl: {}, cust: {}, supp: {} };
+
+          const namePromises = [];
+          if (glAccounts.length > 0) {
+            const glWhere = glAccounts.length === 1
+              ? `SAKNR EQ '${glAccounts[0]}' AND SPRAS EQ 'E'`
+              : glAccounts.map(a => `SAKNR EQ '${a}'`).join(' OR ') ;
+            namePromises.push(
+              fetchViaSoapRfc('SKAT', ['SAKNR', 'TXT20'], [glWhere.length <= 72 ? `${glWhere} AND SPRAS EQ 'E'` : glWhere], sys.base_url, client, auth)
+                .then(rows => { for (const r of rows) names.gl[r.SAKNR] = r.TXT20; })
+                .catch(() => {})
+            );
+          }
+          if (customers.length > 0) {
+            const custWhere = customers.length === 1
+              ? `KUNNR EQ '${customers[0]}'`
+              : customers.map(c => `KUNNR EQ '${c}'`).join(' OR ');
+            namePromises.push(
+              fetchViaSoapRfc('KNA1', ['KUNNR', 'NAME1'], [custWhere], sys.base_url, client, auth)
+                .then(rows => { for (const r of rows) names.cust[r.KUNNR] = r.NAME1; })
+                .catch(() => {})
+            );
+          }
+          if (suppliers.length > 0) {
+            const suppWhere = suppliers.length === 1
+              ? `LIFNR EQ '${suppliers[0]}'`
+              : suppliers.map(s => `LIFNR EQ '${s}'`).join(' OR ');
+            namePromises.push(
+              fetchViaSoapRfc('LFA1', ['LIFNR', 'NAME1'], [suppWhere], sys.base_url, client, auth)
+                .then(rows => { for (const r of rows) names.supp[r.LIFNR] = r.NAME1; })
+                .catch(() => {})
+            );
+          }
+          await Promise.all(namePromises);
+          console.log('[ProofForge] Resolved names — GL:', Object.keys(names.gl).length, 'Cust:', Object.keys(names.cust).length, 'Supp:', Object.keys(names.supp).length);
+
           result.items = bsegRows.map(line => ({
             AccountingDocumentItem: line.BUZEI, PostingKey: line.BSCHL,
             AccountType: line.KOART, GLAccount: line.HKONT,
+            GLAccountName: names.gl[line.HKONT] || '',
             DebitAmountInTransCrcy: line.SHKZG === 'S' ? line.WRBTR : '',
             CreditAmountInTransCrcy: line.SHKZG === 'H' ? line.WRBTR : '',
             AmountInCompanyCodeCurrency: line.DMBTR,
             TaxCode: line.MWSKZ, ItemText: line.SGTXT, AssignmentReference: line.ZUONR,
             ProfitCenter: line.PRCTR, CostCenter: line.KOSTL,
-            Customer: line.KUNNR, Supplier: line.LIFNR,
+            Customer: line.KUNNR, CustomerName: names.cust[line.KUNNR] || '',
+            Supplier: line.LIFNR, SupplierName: names.supp[line.LIFNR] || '',
             Material: line.MATNR, Plant: line.WERKS, InternalOrder: line.AUFNR,
             BusinessArea: line.GSBER, SalesDocument: line.VBELN,
             BaselineDate: line.ZFBDT, PaymentTerms: line.ZTERM,
@@ -498,25 +540,25 @@ export default function RunExecute() {
     });
   };
 
-  // FB03-style header fields — two rows
+  // FB03-style header fields — grouped logically
   const DOC_HEADER_ROW1 = [
     { key: 'CompanyCode', label: 'Company Code' },
     { key: 'AccountingDocumentType', label: 'Doc Type' },
+    { key: 'FiscalYear', label: 'Fiscal Year' },
+    { key: 'Period', label: 'Period' },
     { key: 'PostingDate', label: 'Posting Date', isDate: true },
     { key: 'DocumentDate', label: 'Document Date', isDate: true },
     { key: 'TransactionCurrency', label: 'Currency' },
-    { key: 'FiscalYear', label: 'Fiscal Year' },
-    { key: 'Period', label: 'Period' },
+    { key: 'ExchangeRate', label: 'Exch. Rate' },
   ];
   const DOC_HEADER_ROW2 = [
     { key: 'DocumentHeaderText', label: 'Header Text' },
     { key: 'Reference', label: 'Reference' },
+    { key: 'TransactionCode', label: 'TCode' },
     { key: 'ObjectType', label: 'Origin Type' },
     { key: 'ObjectKey', label: 'Origin Key' },
     { key: 'CreatedBy', label: 'Created By' },
     { key: 'CreatedOn', label: 'Created On', isDate: true },
-    { key: 'TransactionCode', label: 'TCode' },
-    { key: 'ExchangeRate', label: 'Exch. Rate' },
     { key: 'ReversalDocument', label: 'Reversal Doc' },
   ];
 
@@ -526,8 +568,11 @@ export default function RunExecute() {
     { key: 'PostingKey', label: 'PK' },
     { key: 'AccountType', label: 'Tp' },
     { key: 'GLAccount', label: 'G/L Account' },
+    { key: 'GLAccountName', label: 'Account Name' },
     { key: 'Customer', label: 'Customer' },
+    { key: 'CustomerName', label: 'Customer Name' },
     { key: 'Supplier', label: 'Supplier' },
+    { key: 'SupplierName', label: 'Supplier Name' },
     { key: 'DebitAmountInTransCrcy', label: 'Debit', align: 'right', isAmount: true },
     { key: 'CreditAmountInTransCrcy', label: 'Credit', align: 'right', isAmount: true },
     { key: 'TaxCode', label: 'Tax' },
