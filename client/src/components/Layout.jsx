@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -13,13 +13,20 @@ const navItems = [
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('pf_sidebar') === '1');
+
+  const toggleSidebar = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem('pf_sidebar', next ? '1' : '0');
+  };
 
   return (
-    <div className="app-layout">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
+    <div className={`app-layout ${collapsed ? 'sidebar-collapsed' : ''}`}>
+      <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-brand" onClick={toggleSidebar} style={{ cursor: 'pointer' }} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
           <span className="brand-icon">◆</span>
-          <span className="brand-text">ProofForge</span>
+          {!collapsed && <span className="brand-text">ProofForge</span>}
         </div>
         <nav className="sidebar-nav">
           {navItems.map((item) => (
@@ -27,20 +34,23 @@ export default function Layout() {
               key={item.to}
               to={item.to}
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              title={collapsed ? item.label : undefined}
             >
               <span className="nav-icon">{item.icon}</span>
-              <span>{item.label}</span>
+              {!collapsed && <span>{item.label}</span>}
             </NavLink>
           ))}
         </nav>
         <div className="sidebar-footer">
           <div className="user-info">
             <span className="user-avatar">{user?.display_name?.[0]?.toUpperCase()}</span>
-            <span className="user-name">{user?.display_name}</span>
+            {!collapsed && <span className="user-name">{user?.display_name}</span>}
           </div>
-          <button className="btn-ghost btn-sm" onClick={() => { logout(); navigate('/login'); }}>
-            Sign out
-          </button>
+          {!collapsed && (
+            <button className="btn-ghost btn-sm" onClick={() => { logout(); navigate('/login'); }}>
+              Sign out
+            </button>
+          )}
         </div>
       </aside>
       <main className="main-content">
