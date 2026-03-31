@@ -22,6 +22,9 @@ export default function RunExecute() {
   const [sapDocs, setSapDocs] = useState({});
   const [sapSystems, setSapSystems] = useState([]);
   const [expandedAcdoca, setExpandedAcdoca] = useState({});
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(280);
+  const resizing = useRef(false);
   const fileRef = useRef(null);
 
   const load = async () => {
@@ -47,6 +50,21 @@ export default function RunExecute() {
     setDefects(d);
   };
   useEffect(() => { load(); api.get('/systems').then(setSapSystems); }, [id]);
+
+  const startResize = (e) => {
+    e.preventDefault();
+    resizing.current = true;
+    const startX = e.clientX;
+    const startW = panelWidth;
+    const onMove = (ev) => {
+      if (!resizing.current) return;
+      const newW = Math.max(120, Math.min(500, startW + ev.clientX - startX));
+      setPanelWidth(newW);
+    };
+    const onUp = () => { resizing.current = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   if (!run) return <div className="loading">Loading...</div>;
 
@@ -918,10 +936,19 @@ export default function RunExecute() {
         )}
       </div>
 
-      <div className="run-layout">
+      <div className="run-layout" style={{ userSelect: resizing.current ? 'none' : undefined }}>
         {/* Step list sidebar */}
-        <div className="run-steps-panel">
-          <h3>Steps</h3>
+        <div className={`run-steps-panel ${panelCollapsed ? 'collapsed' : ''}`} style={panelCollapsed ? undefined : { width: panelWidth }}>
+          <div className="run-steps-header">
+            {!panelCollapsed && <h3>Steps</h3>}
+            <button
+              className="panel-toggle-btn"
+              onClick={() => setPanelCollapsed(!panelCollapsed)}
+              title={panelCollapsed ? 'Expand panel' : 'Collapse panel'}
+            >
+              {panelCollapsed ? '\u25B8' : '\u25C2'}
+            </button>
+          </div>
           {run.step_executions?.map((se) => {
             const def = getStepDef(se.step_id);
             return (
@@ -929,14 +956,20 @@ export default function RunExecute() {
                 key={se.step_id}
                 className={`run-step-item ${activeStep === se.step_id ? 'active' : ''}`}
                 onClick={() => setActiveStep(se.step_id)}
+                title={panelCollapsed ? `${def.order}. ${def.name}` : undefined}
               >
                 <span className="step-order">{def.order}</span>
-                <span className="step-name-text">{def.name}</span>
-                <StatusBadge status={se.current_status} />
+                {!panelCollapsed && <span className="step-name-text">{def.name}</span>}
+                {!panelCollapsed && <StatusBadge status={se.current_status} />}
+                {panelCollapsed && <span className={`step-dot step-dot--${se.current_status}`} />}
               </div>
             );
           })}
         </div>
+        {/* Resize handle */}
+        {!panelCollapsed && (
+          <div className="run-resize-handle" onMouseDown={startResize} />
+        )}
 
         {/* Step detail panel */}
         <div className="run-step-detail">
