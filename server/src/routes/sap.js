@@ -44,11 +44,37 @@ const DOC_TEMPLATES = {
     path: (docNum, companyCode, fiscalYear) =>
       `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${docNum}'${companyCode ? ` and CompanyCode eq '${companyCode}'` : ''}${fiscalYear ? ` and FiscalYear eq '${fiscalYear}'` : ''}&$top=50`,
     fiori_link: (docNum) => `FinancialAccounting-displayJournalEntry?AccountingDocument=${docNum}`,
+    rfc_tables: { header: 'BKPF', items: 'BSEG', journal: 'ACDOCA' },
   },
   'Cash Document': {
     path: (docNum) =>
       `/sap/opu/odata/sap/API_OPLACCTGDOCITEMCUBE_SRV/A_OperationalAcctgDocItemCube?$filter=AccountingDocument eq '${docNum}'&$top=50`,
     fiori_link: (docNum) => `CashJournal-enterCashJournalEntry`,
+    rfc_tables: { header: 'TCJ_DOCUMENTS', items: 'TCJ_POSITIONS' },
+  },
+  'Purchase Order': {
+    fiori_link: (docNum) => `PurchaseOrder-manage&/PurchaseOrders('${docNum}')`,
+    rfc_tables: { header: 'EKKO', items: 'EKPO' },
+  },
+  'Material Document': {
+    fiori_link: (docNum) => `MaterialDocument-displayDetail?MaterialDocument=${docNum}`,
+    rfc_tables: { header: 'MKPF', items: 'MSEG' },
+  },
+  'Sales Order': {
+    fiori_link: (docNum) => `SalesOrder-manage&/SalesOrders('${docNum}')`,
+    rfc_tables: { header: 'VBAK', items: 'VBAP' },
+  },
+  'Purchase Requisition': {
+    fiori_link: (docNum) => `PurchaseRequisition-maintain&/PurchaseRequisitions('${docNum}')`,
+    rfc_tables: { header: 'EBAN', items: 'EBAN' },
+  },
+  'Delivery': {
+    fiori_link: (docNum) => `OutboundDelivery-displayDetail?DeliveryDocument=${docNum}`,
+    rfc_tables: { header: 'LIKP', items: 'LIPS' },
+  },
+  'Invoice': {
+    fiori_link: (docNum) => `SupplierInvoice-display?SupplierInvoice=${docNum}`,
+    rfc_tables: { header: 'RBKP', items: 'RSEG' },
   },
 };
 

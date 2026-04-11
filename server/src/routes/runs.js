@@ -211,6 +211,113 @@ router.put('/:id/steps/:stepId/attempts/:attemptNum/validations/:valId', async (
   res.json(updated);
 });
 
+// Bulk import SAP documents into run steps
+// Used by agents (hp-claude) to push discovered SAP documents
+router.post('/:id/import-sap-documents', async (req, res) => {
+  const run = await store.get(Number(req.params.id));
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+
+  const { documents } = req.body;
+  if (!Array.isArray(documents) || documents.length === 0) {
+    return res.status(400).json({ error: 'documents array required' });
+  }
+
+  let imported = 0;
+  for (const doc of documents) {
+    const { step_id, object_type, object_id, header, items, acdoca, service } = doc;
+    if (!object_type || !object_id) continue;
+
+    // Find step execution — by step_id if provided, otherwise first step
+    let stepExec = step_id
+      ? run.step_executions.find((s) => s.step_id === step_id)
+      : run.step_executions[0];
+    if (!stepExec) continue;
+
+    // Ensure at least one attempt exists
+    if (stepExec.attempts.length === 0) {
+      stepExec.attempts.push({
+        attempt_number: 1,
+        executor: req.user.id,
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        status: stepExec.current_status === 'not_started' ? 'passed' : stepExec.current_status,
+        actual_parameters: {},
+        comment: '',
+        attachments: [],
+        sap_objects: [],
+        sap_payloads: {},
+        validations: [],
+      });
+      if (stepExec.current_status === 'not_started') {
+        stepExec.current_status = 'passed';
+      }
+    }
+
+    const attempt = stepExec.attempts[stepExec.attempts.length - 1];
+    if (!attempt.sap_objects) attempt.sap_objects = [];
+    if (!attempt.sap_payloads) attempt.sap_payloads = {};
+
+    // Add reference
+    const alreadyRef = attempt.sap_objects.some(
+      (o) => o.object_type === object_type && o.object_id === object_id
+    );
+    if (!alreadyRef) {
+      attempt.sap_objects.push({
+        source_system: 'SAP',
+        object_type,
+        object_id,
+        captured_at: new Date().toISOString(),
+      });
+    }
+
+    // Store full payload
+    const key = `${object_type}_${object_id}`;
+    attempt.sap_payloads[key] = {
+      object_type,
+      object_id,
+      header: header || null,
+      items: items || [],
+      acdoca: acdoca || [],
+      service: service || 'RFC',
+      fetched_at: new Date().toISOString(),
+    };
+    imported++;
+  }
+
+  if (run.status === 'planned') {
+    run.status = 'in_progress';
+    run.started_at = new Date().toISOString();
+  }
+
+  const updated = await store.update(run.id, run, req.user.id);
+  res.json({ ok: true, imported, run_id: run.id });
+});
+
+// Search SAP documents across all runs
+router.get('/sap-documents', async (req, res) => {
+  const runs = await store.list();
+  const docs = [];
+  for (const run of runs) {
+    for (const se of (run.step_executions || [])) {
+      for (const att of (se.attempts || [])) {
+        for (const [key, payload] of Object.entries(att.sap_payloads || {})) {
+          docs.push({
+            run_id: run.id,
+            step_id: se.step_id,
+            attempt: att.attempt_number,
+            key,
+            object_type: payload.object_type,
+            object_id: payload.object_id,
+            header: payload.header,
+            fetched_at: payload.fetched_at,
+          });
+        }
+      }
+    }
+  }
+  res.json(docs);
+});
+
 // Delete
 router.delete('/:id', async (req, res) => {
   const ok = await store.delete(Number(req.params.id));
