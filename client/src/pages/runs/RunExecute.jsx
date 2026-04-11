@@ -38,9 +38,30 @@ export default function RunExecute() {
     const saved = {};
     for (const se of (r.step_executions || [])) {
       for (const att of (se.attempts || [])) {
+        // Load from sap_payloads (standard location)
         if (att.sap_payloads) {
           for (const [key, payload] of Object.entries(att.sap_payloads)) {
             saved[key] = payload;
+          }
+        }
+        // Also load from sap_objects that have embedded header/items data
+        // (hp-claude stores data directly in sap_objects)
+        if (att.sap_objects) {
+          for (const obj of att.sap_objects) {
+            if (obj.header || obj.items) {
+              const key = `${obj.object_type}_${obj.object_id}`;
+              if (!saved[key]) {
+                saved[key] = {
+                  object_type: obj.object_type,
+                  object_id: obj.object_id,
+                  header: obj.header || null,
+                  items: obj.items || [],
+                  acdoca: obj.acdoca || [],
+                  service: obj.service || 'RFC',
+                  fetched_at: obj.captured_at || obj.fetched_at || new Date().toISOString(),
+                };
+              }
+            }
           }
         }
       }
