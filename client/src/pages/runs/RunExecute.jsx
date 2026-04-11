@@ -574,6 +574,19 @@ export default function RunExecute() {
       const aufnr = objectId.padStart(12, '0');
       return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=IW33%20CAUFVD-AUFNR=${aufnr}&sap-client=${client}&sap-language=${lang}`;
     }
+    if (objectType === 'Delivery' || objectType === 'Outbound Delivery' || objectType === 'Inbound Delivery') {
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=VL03N%20LIKP-VBELN=${docNum}&sap-client=${client}&sap-language=${lang}`;
+    }
+    if (objectType === 'Purchase Requisition') {
+      const banfn = objectId.padStart(10, '0');
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=ME53N%20EBAN-BANFN=${banfn}&sap-client=${client}&sap-language=${lang}`;
+    }
+    if (objectType?.startsWith('Material Document')) {
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=MB03%20RM07M-MBLNR=${docNum}&sap-client=${client}&sap-language=${lang}`;
+    }
+    if (objectType === 'Invoice' || objectType === 'MM Invoice') {
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=MIR4%20RBKP-BELNR=${docNum}&sap-client=${client}&sap-language=${lang}`;
+    }
     return null;
   };
 
@@ -984,6 +997,47 @@ export default function RunExecute() {
   // Strip leading zeros from pure-numeric strings: 0001012001 → 1012001, 0000002122 → 2122
   const stripZeros = (v) => { if (!v) return ''; return /^\d+$/.test(v) ? v.replace(/^0+/, '') || '0' : v; };
 
+  // Decode AWKEY (original document key) based on AWTYP
+  const AWTYP_MAP = {
+    'RMRP': { type: 'MM Invoice', tcode: 'MIR4', icon: '🧾' },
+    'MKPF': { type: 'Material Document', tcode: 'MB03', icon: '📦' },
+    'VBRK': { type: 'Billing Document', tcode: 'VF03', icon: '💰' },
+    'BKPF': { type: 'FI Document', tcode: 'FB03', icon: '📄' },
+    'KAGB': { type: 'Settlement Document', tcode: 'KO88', icon: '📊' },
+  };
+
+  const decodeAwkey = (awtyp, awkey) => {
+    if (!awtyp || !awkey) return null;
+    const key = awkey.trim();
+    const meta = AWTYP_MAP[awtyp];
+    if (!meta) return { type: awtyp, label: key, tcode: null };
+    if (awtyp === 'VBRK') {
+      return { ...meta, vbeln: key.slice(0, 10), label: `${meta.type} ${stripZeros(key.slice(0, 10))}` };
+    }
+    // Most types: first 10 = doc number, last 4 = fiscal year
+    const docnr = key.slice(0, 10);
+    const gjahr = key.length >= 14 ? key.slice(10, 14) : '';
+    return { ...meta, belnr: docnr, gjahr, label: `${meta.type} ${stripZeros(docnr)}${gjahr ? '/' + gjahr : ''}` };
+  };
+
+  // Build SAP GUI link for original document (from AWKEY)
+  const buildOrigDocLink = (awtyp, awkey, bukrs) => {
+    const sys = run.sap_system;
+    if (!sys?.base_url || !awtyp || !awkey) return null;
+    const client = sys.client || '000';
+    const lang = sys.language || 'EN';
+    const key = awkey.trim();
+    const base = `${sys.base_url}/sap/bc/gui/sap/its/webgui`;
+    const q = `&sap-client=${client}&sap-language=${lang}`;
+    switch (awtyp) {
+      case 'RMRP': return `${base}?~transaction=MIR4%20RBKP-BELNR=${key.slice(0,10)}%20RBKP-GJAHR=${key.slice(10,14)}${q}`;
+      case 'MKPF': return `${base}?~transaction=MB03%20RM07M-MBLNR=${key.slice(0,10)}%20RM07M-MJAHR=${key.slice(10,14)}${q}`;
+      case 'VBRK': return `${base}?~transaction=VF03%20VBRK-VBELN=${key.slice(0,10)}${q}`;
+      case 'BKPF': return `${base}?~transaction=FB03%20RF05L-BELNR=${key.slice(0,10)}${bukrs ? '%20RF05L-BUKRS=' + bukrs : ''}%20RF05L-GJAHR=${key.slice(10,14)}${q}`;
+      default: return null;
+    }
+  };
+
   const renderHeaderGrid = (hdr, fields) => (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1px 12px', padding: '6px 12px', background: '#f8fafc' }}>
       {fields.map(f => {
@@ -1134,6 +1188,49 @@ export default function RunExecute() {
             {renderHeaderGrid(hdr, fields)}
           </React.Fragment>
         ))}
+        {/* TCODE + Original Document (AWKEY) — FI documents */}
+        {(() => {
+          const awtyp = hdr?.AWTYP || hdr?.ObjectType;
+          const awkey = hdr?.AWKEY || hdr?.ObjectKey;
+          const tcode = hdr?.TCODE || hdr?.TransactionCode;
+          const xblnr = hdr?.XBLNR || hdr?.Reference;
+          const bukrs = hdr?.BUKRS || hdr?.CompanyCode;
+          if (!awtyp && !tcode && !xblnr) return null;
+          const decoded = decodeAwkey(awtyp, awkey);
+          const origLink = buildOrigDocLink(awtyp, awkey, bukrs);
+          const showOrig = decoded && awtyp !== 'BKPF'; // don't show "original = FI" for FI docs
+          return (
+            <div style={{ padding: '6px 12px', background: '#fefce8', borderTop: '1px solid #fde68a', borderBottom: '1px solid #fde68a', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', fontSize: '11px' }}>
+              {tcode && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: '4px', background: '#7c3aed', color: '#fff', fontWeight: 700, fontSize: '11px', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+                  {tcode}
+                </span>
+              )}
+              {xblnr && (
+                <span style={{ color: '#92400e' }}>
+                  <strong>Ext. Ref:</strong> {xblnr}
+                </span>
+              )}
+              {showOrig && (
+                <>
+                  <span style={{ color: '#d4d4d8' }}>│</span>
+                  <span style={{ color: '#1e40af', fontWeight: 500 }}>
+                    {decoded.icon} {decoded.label}
+                  </span>
+                  {origLink && (
+                    <a href={origLink} target="_blank" rel="noopener" style={{ color: '#4c6fff', textDecoration: 'none', fontSize: '10px', fontWeight: 500 }}>
+                      Open {decoded.tcode} ↗
+                    </a>
+                  )}
+                </>
+              )}
+              {awtyp && !showOrig && (
+                <span style={{ color: '#9ca3af', fontSize: '10px' }}>AWTYP: {awtyp}</span>
+              )}
+            </div>
+          );
+        })()}
+
         <div style={{ borderBottom: '1px solid #e2e5e9' }} />
 
         {/* Line Items */}
@@ -1523,6 +1620,20 @@ export default function RunExecute() {
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: '#fafbfc' }}>
                                     <span className="sap-type">{obj.object_type}</span>
                                     <span className="sap-id" style={{ fontWeight: 600 }}>{obj.object_id}</span>
+                                    {/* TCODE badge */}
+                                    {(() => {
+                                      const tc = docData?.header?.TCODE || docData?.header?.TransactionCode;
+                                      return tc ? (
+                                        <span style={{ padding: '1px 6px', borderRadius: '3px', background: '#7c3aed', color: '#fff', fontWeight: 700, fontSize: '9px', fontFamily: 'monospace', letterSpacing: '0.5px' }}>{tc}</span>
+                                      ) : null;
+                                    })()}
+                                    {/* External Reference */}
+                                    {(() => {
+                                      const xb = docData?.header?.XBLNR || docData?.header?.Reference;
+                                      return xb ? (
+                                        <span style={{ fontSize: '10px', color: '#92400e', background: '#fef3c7', padding: '1px 6px', borderRadius: '3px' }}>Ref: {xb}</span>
+                                      ) : null;
+                                    })()}
                                     {docLink && (
                                       <a href={docLink} target="_blank" rel="noopener" style={{ fontSize: '11px', color: '#4c6fff', textDecoration: 'none' }}>
                                         Open in SAP ↗
