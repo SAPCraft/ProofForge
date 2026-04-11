@@ -156,15 +156,94 @@ export default function RunExecute() {
           lastError = err.message;
         }
       }
-      // OData failed — try RFC_READ_TABLE via SOAP
-      console.log('[ProofForge] OData services failed. Trying RFC_READ_TABLE via SOAP...');
+      // OData failed — try RFC_READ_TABLE via SOAP, routed by object type
+      console.log(`[ProofForge] OData failed. Trying RFC_READ_TABLE for ${objectType}...`);
       try {
-        // Pad document number to 10 chars (SAP BELNR is CHAR 10)
         const docNum = objectId.padStart(10, '0');
         console.log('[ProofForge] Document number padded:', objectId, '->', docNum);
-
-        // Fetch FI document: BKPF header + BSEG lines + ACDOCA registers
         const result = { header: null, items: [], acdoca: [], cashJournal: null, fetched_at: new Date().toISOString(), service: 'RFC' };
+
+        // ─── Route by object_type to correct SAP tables ───
+        const isPO = objectType?.startsWith('Purchase Order') || objectType === 'Purchase Contract' || objectType === 'Scheduling Agreement' || objectType === 'Framework Order';
+        const isSO = objectType === 'Sales Order';
+        const isDelivery = objectType === 'Delivery' || objectType === 'Outbound Delivery' || objectType === 'Inbound Delivery';
+        const isMaintOrder = objectType === 'Maintenance Order';
+        const isPR = objectType === 'Purchase Requisition';
+        const isMatDoc = objectType?.startsWith('Material Document');
+
+        if (isPO) {
+          // ─── EKKO/EKPO ───
+          console.log('[ProofForge] Fetching PO/Contract: EKKO + EKPO...');
+          const ekkoRows = await fetchViaSoapRfc('EKKO',
+            ['EBELN','BUKRS','BSART','ERNAM','AEDAT','LIFNR','EKORG','EKGRP','WAERS','RLWRT','BEDAT'],
+            [`EBELN EQ '${docNum}'`], sys.base_url, client, auth);
+          if (ekkoRows.length > 0) {
+            result.header = ekkoRows[0];
+            const ekpoRows = await fetchViaSoapRfc('EKPO',
+              ['EBELP','MATNR','TXZ01','MENGE','MEINS','NETPR','NETWR','WERKS','LGORT','MATKL','BSTYP'],
+              [`EBELN EQ '${docNum}'`], sys.base_url, client, auth);
+            result.items = ekpoRows;
+          }
+        } else if (isSO) {
+          // ─── VBAK/VBAP ───
+          console.log('[ProofForge] Fetching Sales Order: VBAK + VBAP...');
+          const vbakRows = await fetchViaSoapRfc('VBAK',
+            ['VBELN','AUART','VKORG','VTWEG','SPART','KUNNR','NETWR','WAERK','ERDAT','BSTNK','ERNAM','VDATU'],
+            [`VBELN EQ '${docNum}'`], sys.base_url, client, auth);
+          if (vbakRows.length > 0) {
+            result.header = vbakRows[0];
+            const vbapRows = await fetchViaSoapRfc('VBAP',
+              ['POSNR','MATNR','ARKTX','KWMENG','VRKME','NETWR','WAERK','WERKS','LGORT'],
+              [`VBELN EQ '${docNum}'`], sys.base_url, client, auth);
+            result.items = vbapRows;
+          }
+        } else if (isDelivery) {
+          // ─── LIKP/LIPS ───
+          console.log('[ProofForge] Fetching Delivery: LIKP + LIPS...');
+          const likpRows = await fetchViaSoapRfc('LIKP',
+            ['VBELN','LFART','WADAT','ERDAT','ERNAM','KUNNR','LIFNR','VSTEL'],
+            [`VBELN EQ '${docNum}'`], sys.base_url, client, auth);
+          if (likpRows.length > 0) {
+            result.header = likpRows[0];
+            const lipsRows = await fetchViaSoapRfc('LIPS',
+              ['POSNR','MATNR','ARKTX','LFIMG','VRKME','WERKS','LGORT','VGBEL','VGPOS'],
+              [`VBELN EQ '${docNum}'`], sys.base_url, client, auth);
+            result.items = lipsRows;
+          }
+        } else if (isMaintOrder) {
+          // ─── AUFK (PM Order) ───
+          console.log('[ProofForge] Fetching Maintenance Order: AUFK...');
+          const aufnr = objectId.padStart(12, '0');
+          const aufkRows = await fetchViaSoapRfc('AUFK',
+            ['AUFNR','AUART','ERNAM','ERDAT','BUKRS','WERKS','KTEXT'],
+            [`AUFNR EQ '${aufnr}'`], sys.base_url, client, auth);
+          if (aufkRows.length > 0) result.header = aufkRows[0];
+        } else if (isPR) {
+          // ─── EBAN (Purchase Requisition) ───
+          console.log('[ProofForge] Fetching PR: EBAN...');
+          const banfn = objectId.padStart(10, '0');
+          const ebanRows = await fetchViaSoapRfc('EBAN',
+            ['BANFN','BNFPO','MATNR','TXZ01','MENGE','MEINS','PREIS','PEINH','EKGRP','WERKS','LGORT','BSART','ERNAM','BADAT'],
+            [`BANFN EQ '${banfn}'`], sys.base_url, client, auth);
+          if (ebanRows.length > 0) {
+            result.header = { BANFN: ebanRows[0].BANFN, BSART: ebanRows[0].BSART, ERNAM: ebanRows[0].ERNAM, BADAT: ebanRows[0].BADAT, WERKS: ebanRows[0].WERKS };
+            result.items = ebanRows;
+          }
+        } else if (isMatDoc) {
+          // ─── MKPF/MSEG ───
+          console.log('[ProofForge] Fetching Material Document: MKPF + MSEG...');
+          const mblnr = docNum;
+          const mkpfRows = await fetchViaSoapRfc('MKPF',
+            ['MBLNR','MJAHR','BLDAT','BUDAT','USNAM','XBLNR','BKTXT','VGART'],
+            [`MBLNR EQ '${mblnr}'`], sys.base_url, client, auth);
+          if (mkpfRows.length > 0) {
+            result.header = mkpfRows[0];
+            const msegRows = await fetchViaSoapRfc('MSEG',
+              ['ZEILE','BWART','MATNR','WERKS','LGORT','MENGE','MEINS','ERFMG','ERFME','DMBTR','WAERS','LIFNR','EBELN','EBELP','AUFNR'],
+              [`MBLNR EQ '${mblnr}' AND MJAHR EQ '${mkpfRows[0].MJAHR}'`], sys.base_url, client, auth);
+            result.items = msegRows;
+          }
+        } else {
 
         // 1. BKPF — extended header
         console.log('[ProofForge] Fetching BKPF header...');
@@ -390,9 +469,10 @@ export default function RunExecute() {
         if (result.cashJournal && result.header) {
           result.header.DocumentHeaderText = result.cashJournal.BusinessTransaction;
         }
+        } // end else (FI Document block)
 
         if (result.items.length === 0 && !result.header && !result.cashJournal) {
-          throw new Error('Document not found in BKPF/BSEG, ACDOCA, or TCJ_DOCUMENTS');
+          throw new Error(`Document ${objectId} (${objectType || 'unknown'}) not found in SAP`);
         }
         console.log(`[ProofForge] Success: ${result.items.length} line items, header: ${!!result.header}, cashJournal: ${!!result.cashJournal}`);
         setSapDocs((prev) => ({ ...prev, [key]: result }));
@@ -455,12 +535,21 @@ export default function RunExecute() {
     const client = sys.client || '000';
     const lang = sys.language || 'EN';
     const docNum = objectId.padStart(10, '0');
-    if (objectType === 'FI Document') {
-      // SAP GUI for HTML — FB03 transaction
+    if (objectType?.startsWith('FI Document')) {
       return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=FB03%20RF05L-BELNR=${docNum}&sap-client=${client}&sap-language=${lang}`;
     }
     if (objectType === 'Cash Document') {
       return `${sys.base_url}/sap/bc/ui2/flp?sap-client=${client}&sap-language=${lang}#CashJournal-enterCashJournalEntry?sap-ui-tech-hint=GUI`;
+    }
+    if (objectType?.startsWith('Purchase Order') || objectType === 'Purchase Contract') {
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=ME23N%20RM06E-BSTNR=${docNum}&sap-client=${client}&sap-language=${lang}`;
+    }
+    if (objectType === 'Sales Order') {
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=VA03%20VBAK-VBELN=${docNum}&sap-client=${client}&sap-language=${lang}`;
+    }
+    if (objectType === 'Maintenance Order') {
+      const aufnr = objectId.padStart(12, '0');
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=IW33%20CAUFVD-AUFNR=${aufnr}&sap-client=${client}&sap-language=${lang}`;
     }
     return null;
   };
@@ -468,7 +557,7 @@ export default function RunExecute() {
   // RFC_READ_TABLE via SOAP — works on virtually any SAP system
   const fetchViaSoapRfc = async (table, fields, where, sapBase, sapClient, auth) => {
     const fieldsXml = fields.map(f => `<item><FIELDNAME>${f}</FIELDNAME></item>`).join('');
-    const whereXml = where.map(w => `<item><TEXT>${w}</TEXT></item>`).join('');
+    const whereXml = where.map(w => `<item><TEXT>${w.replace(/'/g, '&apos;')}</TEXT></item>`).join('');
     const soap = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:rfc="urn:sap-com:document:sap:rfc:functions">
 <soap:Body><rfc:RFC_READ_TABLE>
@@ -476,6 +565,7 @@ export default function RunExecute() {
 <NO_DATA></NO_DATA>
 <ROWSKIPS>0</ROWSKIPS>
 <ROWCOUNT>0</ROWCOUNT>
+<USE_ET_DATA_4_RETURN>X</USE_ET_DATA_4_RETURN>
 <OPTIONS>${whereXml}</OPTIONS>
 <FIELDS>${fieldsXml}</FIELDS>
 <DATA></DATA>
@@ -1355,6 +1445,25 @@ export default function RunExecute() {
                   <p>{activeStepDef.expected_result}</p>
                 </div>
               )}
+              {activeStepDef.expected_documents?.length > 0 && (
+                <div className="step-info-block">
+                  <label style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', color: '#6b7280', marginBottom: '4px' }}>
+                    Expected SAP Documents
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {activeStepDef.expected_documents.map((doc, idx) => (
+                      <span key={idx} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 500,
+                        background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe',
+                      }}>
+                        {doc.type}
+                        {doc.table && <span style={{ fontSize: '9px', color: '#6b7280' }}>({doc.table})</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Execution controls */}
               <div className="execution-section">
@@ -1568,7 +1677,11 @@ export default function RunExecute() {
                         <option value="Material Document">Material Document</option>
                         <option value="Sales Order">Sales Order</option>
                         <option value="Purchase Order">Purchase Order</option>
-                        <option value="Delivery">Delivery</option>
+                        <option value="Purchase Contract">Purchase Contract</option>
+                        <option value="Purchase Requisition">Purchase Requisition</option>
+                        <option value="Outbound Delivery">Outbound Delivery</option>
+                        <option value="Inbound Delivery">Inbound Delivery</option>
+                        <option value="Maintenance Order">Maintenance Order</option>
                         <option value="Invoice">Invoice</option>
                         <option value="Payment">Payment</option>
                         <option value="Other">Other</option>
