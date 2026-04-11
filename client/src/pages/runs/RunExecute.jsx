@@ -743,11 +743,92 @@ export default function RunExecute() {
   ];
 
   // Mapping object type → field sets
+  // Sales Order header (VBAK)
+  const SO_HEADER_FIELDS = [
+    { key: 'VBELN', label: 'SO Number' },
+    { key: 'AUART', label: 'Order Type' },
+    { key: 'VKORG', label: 'Sales Org' },
+    { key: 'VTWEG', label: 'Dist. Channel' },
+    { key: 'SPART', label: 'Division' },
+    { key: 'KUNNR', label: 'Sold-to Party' },
+    { key: 'NETWR', label: 'Net Value', isAmount: true },
+    { key: 'WAERK', label: 'Currency' },
+    { key: 'ERDAT', label: 'Created On', isDate: true },
+    { key: 'ERNAM', label: 'Created By' },
+    { key: 'BSTNK', label: 'Cust. Reference' },
+    { key: 'VDATU', label: 'Req. Deliv. Date', isDate: true },
+  ];
+  // Sales Order items (VBAP)
+  const SO_LINE_FIELDS = [
+    { key: 'POSNR', label: 'Item' },
+    { key: 'MATNR', label: 'Material' },
+    { key: 'ARKTX', label: 'Description' },
+    { key: 'KWMENG', label: 'Quantity', align: 'right', isAmount: true },
+    { key: 'VRKME', label: 'UoM' },
+    { key: 'NETWR', label: 'Net Value', align: 'right', isAmount: true },
+    { key: 'WAERK', label: 'Curr' },
+    { key: 'WERKS', label: 'Plant' },
+    { key: 'LGORT', label: 'SLoc' },
+  ];
+
+  // Delivery header (LIKP)
+  const DELIVERY_HEADER_FIELDS = [
+    { key: 'VBELN', label: 'Delivery' },
+    { key: 'LFART', label: 'Deliv. Type' },
+    { key: 'WADAT', label: 'Goods Issue Date', isDate: true },
+    { key: 'ERDAT', label: 'Created On', isDate: true },
+    { key: 'ERNAM', label: 'Created By' },
+    { key: 'KUNNR', label: 'Ship-to Party' },
+    { key: 'VSTEL', label: 'Shipping Point' },
+  ];
+  // Delivery items (LIPS)
+  const DELIVERY_LINE_FIELDS = [
+    { key: 'POSNR', label: 'Item' },
+    { key: 'MATNR', label: 'Material' },
+    { key: 'ARKTX', label: 'Description' },
+    { key: 'LFIMG', label: 'Deliv. Qty', align: 'right', isAmount: true },
+    { key: 'VRKME', label: 'UoM' },
+    { key: 'WERKS', label: 'Plant' },
+    { key: 'LGORT', label: 'SLoc' },
+    { key: 'VGBEL', label: 'Ref. Doc' },
+    { key: 'VGPOS', label: 'Ref. Item' },
+  ];
+
+  // Invoice header (RBKP)
+  const INVOICE_HEADER_FIELDS = [
+    { key: 'BELNR', label: 'Invoice Doc' },
+    { key: 'GJAHR', label: 'Fiscal Year' },
+    { key: 'BUKRS', label: 'Company Code' },
+    { key: 'LIFNR', label: 'Vendor' },
+    { key: 'BLDAT', label: 'Doc Date', isDate: true },
+    { key: 'BUDAT', label: 'Posting Date', isDate: true },
+    { key: 'RMWWR', label: 'Gross Amount', isAmount: true },
+    { key: 'WAERS', label: 'Currency' },
+    { key: 'XBLNR', label: 'Reference' },
+  ];
+  const INVOICE_LINE_FIELDS = [
+    { key: 'BUZEI', label: 'Item' },
+    { key: 'EBELN', label: 'PO Number' },
+    { key: 'EBELP', label: 'PO Item' },
+    { key: 'MATNR', label: 'Material' },
+    { key: 'MENGE', label: 'Quantity', align: 'right', isAmount: true },
+    { key: 'BSTME', label: 'UoM' },
+    { key: 'WRBTR', label: 'Amount', align: 'right', isAmount: true },
+    { key: 'WAERS', label: 'Curr' },
+    { key: 'WERKS', label: 'Plant' },
+  ];
+
+  // Mapping object type → field sets
   const DOC_TYPE_FIELDS = {
     'Purchase Order':       { header: PO_HEADER_FIELDS, items: PO_LINE_FIELDS },
     'Purchase Contract':    { header: PO_HEADER_FIELDS, items: PO_LINE_FIELDS },
+    'Scheduling Agreement': { header: PO_HEADER_FIELDS, items: PO_LINE_FIELDS },
+    'Framework Order':      { header: PO_HEADER_FIELDS, items: PO_LINE_FIELDS },
     'Material Document':    { header: MATDOC_HEADER_FIELDS, items: MATDOC_LINE_FIELDS },
     'Purchase Requisition': { header: PR_HEADER_FIELDS, items: PR_LINE_FIELDS },
+    'Sales Order':          { header: SO_HEADER_FIELDS, items: SO_LINE_FIELDS },
+    'Delivery':             { header: DELIVERY_HEADER_FIELDS, items: DELIVERY_LINE_FIELDS },
+    'Invoice':              { header: INVOICE_HEADER_FIELDS, items: INVOICE_LINE_FIELDS },
   };
 
   // ACDOCA columns
