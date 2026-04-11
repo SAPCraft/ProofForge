@@ -604,6 +604,131 @@ export default function RunExecute() {
     { key: 'ItemText', label: 'Text' },
   ];
 
+  // Purchase Order header (EKKO)
+  const PO_HEADER_FIELDS = [
+    { key: 'EBELN', label: 'PO Number' },
+    { key: 'BUKRS', label: 'Company Code' },
+    { key: 'BSART', label: 'Doc Type' },
+    { key: 'ERNAM', label: 'Created By' },
+    { key: 'AEDAT', label: 'Created On', isDate: true },
+    { key: 'LIFNR', label: 'Vendor' },
+    { key: 'EKORG', label: 'Purch. Org' },
+    { key: 'EKGRP', label: 'Purch. Group' },
+    { key: 'WAERS', label: 'Currency' },
+    { key: 'RLWRT', label: 'Total Value', isAmount: true },
+    { key: 'BEDAT', label: 'Document Date', isDate: true },
+  ];
+  // Purchase Order items (EKPO)
+  const PO_LINE_FIELDS = [
+    { key: 'EBELP', label: 'Item' },
+    { key: 'MATNR', label: 'Material' },
+    { key: 'TXZ01', label: 'Description' },
+    { key: 'MENGE', label: 'Quantity', align: 'right', isAmount: true },
+    { key: 'MEINS', label: 'UoM' },
+    { key: 'NETPR', label: 'Net Price', align: 'right', isAmount: true },
+    { key: 'NETWR', label: 'Net Value', align: 'right', isAmount: true },
+    { key: 'WERKS', label: 'Plant' },
+    { key: 'LGORT', label: 'SLoc' },
+    { key: 'MATKL', label: 'Mat. Group' },
+    { key: 'BSTYP', label: 'Item Cat.' },
+  ];
+
+  // Material Document header (MKPF)
+  const MATDOC_HEADER_FIELDS = [
+    { key: 'MBLNR', label: 'Mat. Doc' },
+    { key: 'MJAHR', label: 'Year' },
+    { key: 'VGART', label: 'Trans. Type' },
+    { key: 'BLART', label: 'Doc Type' },
+    { key: 'BUDAT', label: 'Posting Date', isDate: true },
+    { key: 'CPUDT', label: 'Entry Date', isDate: true },
+    { key: 'USNAM', label: 'User' },
+    { key: 'XBLNR', label: 'Reference' },
+    { key: 'BKTXT', label: 'Header Text' },
+  ];
+  // Material Document items (MSEG)
+  const MATDOC_LINE_FIELDS = [
+    { key: 'ZEILE', label: 'Item' },
+    { key: 'BWART', label: 'Mvt Type' },
+    { key: 'MATNR', label: 'Material' },
+    { key: 'MAKTX', label: 'Description' },
+    { key: 'WERKS', label: 'Plant' },
+    { key: 'LGORT', label: 'SLoc' },
+    { key: 'MENGE', label: 'Quantity', align: 'right', isAmount: true },
+    { key: 'MEINS', label: 'UoM' },
+    { key: 'DMBTR', label: 'Amount LC', align: 'right', isAmount: true },
+    { key: 'WAERS', label: 'Curr' },
+    { key: 'LIFNR', label: 'Vendor' },
+    { key: 'KOSTL', label: 'Cost Ctr' },
+    { key: 'EBELN', label: 'PO Number' },
+    { key: 'EBELP', label: 'PO Item' },
+  ];
+
+  // Purchase Requisition (EBAN)
+  const PR_HEADER_FIELDS = [
+    { key: 'BANFN', label: 'PR Number' },
+    { key: 'BSART', label: 'Doc Type' },
+    { key: 'ERNAM', label: 'Created By' },
+    { key: 'BADAT', label: 'Req. Date', isDate: true },
+    { key: 'FRGDT', label: 'Release Date', isDate: true },
+  ];
+  const PR_LINE_FIELDS = [
+    { key: 'BNFPO', label: 'Item' },
+    { key: 'MATNR', label: 'Material' },
+    { key: 'TXZ01', label: 'Description' },
+    { key: 'MENGE', label: 'Quantity', align: 'right', isAmount: true },
+    { key: 'MEINS', label: 'UoM' },
+    { key: 'PREIS', label: 'Price', align: 'right', isAmount: true },
+    { key: 'WERKS', label: 'Plant' },
+    { key: 'LGORT', label: 'SLoc' },
+    { key: 'EKGRP', label: 'Purch. Group' },
+    { key: 'LIFNR', label: 'Fixed Vendor' },
+    { key: 'EBELN', label: 'PO Number' },
+    { key: 'EBELP', label: 'PO Item' },
+  ];
+
+  // FI Document header (BKPF via RFC)
+  const FI_RFC_HEADER_FIELDS = [
+    { key: 'BUKRS', label: 'Company Code' },
+    { key: 'BELNR', label: 'Document No.' },
+    { key: 'GJAHR', label: 'Fiscal Year' },
+    { key: 'BLART', label: 'Doc Type' },
+    { key: 'BUDAT', label: 'Posting Date', isDate: true },
+    { key: 'BLDAT', label: 'Document Date', isDate: true },
+    { key: 'CPUDT', label: 'Entry Date', isDate: true },
+    { key: 'WAERS', label: 'Currency' },
+    { key: 'XBLNR', label: 'Reference' },
+    { key: 'BKTXT', label: 'Header Text' },
+    { key: 'TCODE', label: 'TCode' },
+    { key: 'USNAM', label: 'User' },
+    { key: 'STBLG', label: 'Reversal Doc' },
+  ];
+  // FI Document items (BSEG via RFC)
+  const FI_RFC_LINE_FIELDS = [
+    { key: 'BUZEI', label: 'Item' },
+    { key: 'BSCHL', label: 'PK' },
+    { key: 'KOART', label: 'Tp' },
+    { key: 'HKONT', label: 'G/L Account' },
+    { key: 'SGTXT', label: 'Text' },
+    { key: 'WRBTR', label: 'Amount', align: 'right', isAmount: true },
+    { key: 'DMBTR', label: 'Amount LC', align: 'right', isAmount: true },
+    { key: 'SHKZG', label: 'D/C' },
+    { key: 'MWSKZ', label: 'Tax' },
+    { key: 'KOSTL', label: 'Cost Ctr' },
+    { key: 'PRCTR', label: 'Profit Ctr' },
+    { key: 'KUNNR', label: 'Customer' },
+    { key: 'LIFNR', label: 'Vendor' },
+    { key: 'ZUONR', label: 'Assignment' },
+    { key: 'ZTERM', label: 'Pmt Terms' },
+  ];
+
+  // Mapping object type → field sets
+  const DOC_TYPE_FIELDS = {
+    'Purchase Order':       { header: PO_HEADER_FIELDS, items: PO_LINE_FIELDS },
+    'Purchase Contract':    { header: PO_HEADER_FIELDS, items: PO_LINE_FIELDS },
+    'Material Document':    { header: MATDOC_HEADER_FIELDS, items: MATDOC_LINE_FIELDS },
+    'Purchase Requisition': { header: PR_HEADER_FIELDS, items: PR_LINE_FIELDS },
+  };
+
   // ACDOCA columns
   const ACDOCA_FIELDS = [
     { key: 'RLDNR', label: 'Ledger' },
@@ -678,7 +803,7 @@ export default function RunExecute() {
                 {visibleFields.map(f => (
                   <td key={f.key} style={{ padding: '4px 6px', textAlign: f.align || 'left', borderTop: '2px solid #cbd5e0', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
                     {f.isAmount && totals[f.key] ? fmtAmt(totals[f.key]) : ''}
-                    {(f.key === 'AccountingDocumentItem' || f.key === 'DOCLN') ? `${items.length}` : ''}
+                    {(f.key === 'AccountingDocumentItem' || f.key === 'DOCLN' || f.key === 'EBELP' || f.key === 'ZEILE' || f.key === 'BUZEI' || f.key === 'BNFPO') ? `${items.length}` : ''}
                   </td>
                 ))}
               </tr>
@@ -694,7 +819,27 @@ export default function RunExecute() {
       return <div style={{ padding: '10px', color: '#6b7280', fontSize: '12px' }}>No data returned from SAP</div>;
     }
     const hdr = docData.header || (docData.items?.length > 0 ? docData.items[0] : {});
-    const docKey = `${objectType}_${hdr?.AccountingDocument || ''}`;
+    const docKey = `${objectType}_${hdr?.AccountingDocument || hdr?.EBELN || hdr?.MBLNR || hdr?.BANFN || ''}`;
+
+    // Detect if data comes from RFC (has RFC field names) vs OData
+    const isRFC = docData.service === 'RFC' || hdr?.BUKRS || hdr?.EBELN || hdr?.MBLNR || hdr?.BANFN;
+
+    // Select field definitions based on document type
+    const typeFields = DOC_TYPE_FIELDS[objectType];
+    let headerFields, lineFields;
+    if (typeFields) {
+      headerFields = [typeFields.header];
+      lineFields = typeFields.items;
+    } else if (objectType === 'Cash Document') {
+      headerFields = [DOC_HEADER_ROW1, DOC_HEADER_ROW2];
+      lineFields = CASH_DOC_LINE_FIELDS;
+    } else if (isRFC && (objectType === 'FI Document' || !objectType)) {
+      headerFields = [FI_RFC_HEADER_FIELDS];
+      lineFields = FI_RFC_LINE_FIELDS;
+    } else {
+      headerFields = [DOC_HEADER_ROW1, DOC_HEADER_ROW2];
+      lineFields = LINE_ITEM_FIELDS;
+    }
 
     return (
       <div style={{ fontSize: '12px' }}>
@@ -746,13 +891,16 @@ export default function RunExecute() {
           </div>
         )}
 
-        {/* Document Header — FB03 style */}
-        {renderHeaderGrid(hdr, DOC_HEADER_ROW1)}
-        {renderHeaderGrid(hdr, DOC_HEADER_ROW2)}
+        {/* Document Header */}
+        {headerFields.map((fields, idx) => (
+          <React.Fragment key={idx}>
+            {renderHeaderGrid(hdr, fields)}
+          </React.Fragment>
+        ))}
         <div style={{ borderBottom: '1px solid #e2e5e9' }} />
 
         {/* Line Items */}
-        {renderTable(docData.items, objectType === 'Cash Document' ? CASH_DOC_LINE_FIELDS : LINE_ITEM_FIELDS)}
+        {docData.items?.length > 0 && renderTable(docData.items, lineFields)}
 
         {/* ACDOCA Registers — collapsible */}
         {docData.acdoca?.length > 0 && (
