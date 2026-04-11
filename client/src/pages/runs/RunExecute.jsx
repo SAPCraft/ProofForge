@@ -779,6 +779,7 @@ export default function RunExecute() {
     { key: 'ERDAT', label: 'Created On', isDate: true },
     { key: 'ERNAM', label: 'Created By' },
     { key: 'KUNNR', label: 'Ship-to Party' },
+    { key: 'LIFNR', label: 'Vendor' },
     { key: 'VSTEL', label: 'Shipping Point' },
   ];
   // Delivery items (LIPS)
@@ -818,6 +819,18 @@ export default function RunExecute() {
     { key: 'WERKS', label: 'Plant' },
   ];
 
+  // Maintenance Order header (AUFK)
+  const MAINT_ORDER_HEADER_FIELDS = [
+    { key: 'AUFNR', label: 'Order Number' },
+    { key: 'AUART', label: 'Order Type' },
+    { key: 'KTEXT', label: 'Description' },
+    { key: 'BUKRS', label: 'Company Code' },
+    { key: 'WERKS', label: 'Plant' },
+    { key: 'ERDAT', label: 'Created On', isDate: true },
+    { key: 'ERNAM', label: 'Created By' },
+    { key: 'STATUS', label: 'Status' },
+  ];
+
   // Mapping object type → field sets
   const DOC_TYPE_FIELDS = {
     'Purchase Order':       { header: PO_HEADER_FIELDS, items: PO_LINE_FIELDS },
@@ -828,7 +841,10 @@ export default function RunExecute() {
     'Purchase Requisition': { header: PR_HEADER_FIELDS, items: PR_LINE_FIELDS },
     'Sales Order':          { header: SO_HEADER_FIELDS, items: SO_LINE_FIELDS },
     'Delivery':             { header: DELIVERY_HEADER_FIELDS, items: DELIVERY_LINE_FIELDS },
+    'Outbound Delivery':    { header: DELIVERY_HEADER_FIELDS, items: DELIVERY_LINE_FIELDS },
+    'Inbound Delivery':     { header: DELIVERY_HEADER_FIELDS, items: DELIVERY_LINE_FIELDS },
     'Invoice':              { header: INVOICE_HEADER_FIELDS, items: INVOICE_LINE_FIELDS },
+    'Maintenance Order':    { header: MAINT_ORDER_HEADER_FIELDS, items: null },
   };
 
   // ACDOCA columns
@@ -905,7 +921,7 @@ export default function RunExecute() {
                 {visibleFields.map(f => (
                   <td key={f.key} style={{ padding: '4px 6px', textAlign: f.align || 'left', borderTop: '2px solid #cbd5e0', fontFamily: f.isAmount ? 'monospace' : 'inherit' }}>
                     {f.isAmount && totals[f.key] ? fmtAmt(totals[f.key]) : ''}
-                    {(f.key === 'AccountingDocumentItem' || f.key === 'DOCLN' || f.key === 'EBELP' || f.key === 'ZEILE' || f.key === 'BUZEI' || f.key === 'BNFPO') ? `${items.length}` : ''}
+                    {(f.key === 'AccountingDocumentItem' || f.key === 'DOCLN' || f.key === 'EBELP' || f.key === 'ZEILE' || f.key === 'BUZEI' || f.key === 'BNFPO' || f.key === 'POSNR') ? `${items.length}` : ''}
                   </td>
                 ))}
               </tr>
@@ -921,21 +937,27 @@ export default function RunExecute() {
       return <div style={{ padding: '10px', color: '#6b7280', fontSize: '12px' }}>No data returned from SAP</div>;
     }
     const hdr = docData.header || (docData.items?.length > 0 ? docData.items[0] : {});
-    const docKey = `${objectType}_${hdr?.AccountingDocument || hdr?.EBELN || hdr?.MBLNR || hdr?.BANFN || ''}`;
+    const docKey = `${objectType}_${hdr?.AccountingDocument || hdr?.EBELN || hdr?.MBLNR || hdr?.BANFN || hdr?.VBELN || hdr?.AUFNR || ''}`;
 
     // Detect if data comes from RFC (has RFC field names) vs OData
     const isRFC = docData.service === 'RFC' || hdr?.BUKRS || hdr?.EBELN || hdr?.MBLNR || hdr?.BANFN;
 
     // Select field definitions based on document type
-    const typeFields = DOC_TYPE_FIELDS[objectType];
+    // Look up field definitions: exact match first, then prefix match for PO/FI variants
+    let typeFields = DOC_TYPE_FIELDS[objectType];
+    if (!typeFields && objectType) {
+      // Handle "Purchase Order (from PR)" → Purchase Order fields
+      if (objectType.startsWith('Purchase Order')) typeFields = DOC_TYPE_FIELDS['Purchase Order'];
+      else if (objectType.startsWith('Material Document')) typeFields = DOC_TYPE_FIELDS['Material Document'];
+    }
     let headerFields, lineFields;
     if (typeFields) {
-      headerFields = [typeFields.header];
+      headerFields = typeFields.header ? [typeFields.header] : [];
       lineFields = typeFields.items;
     } else if (objectType === 'Cash Document') {
       headerFields = [DOC_HEADER_ROW1, DOC_HEADER_ROW2];
       lineFields = CASH_DOC_LINE_FIELDS;
-    } else if (isRFC && (objectType === 'FI Document' || !objectType)) {
+    } else if (isRFC && (objectType?.startsWith('FI Document') || !objectType)) {
       headerFields = [FI_RFC_HEADER_FIELDS];
       lineFields = FI_RFC_LINE_FIELDS;
     } else {
@@ -1002,7 +1024,7 @@ export default function RunExecute() {
         <div style={{ borderBottom: '1px solid #e2e5e9' }} />
 
         {/* Line Items */}
-        {docData.items?.length > 0 && renderTable(docData.items, lineFields)}
+        {docData.items?.length > 0 && lineFields && renderTable(docData.items, lineFields)}
 
         {/* ACDOCA Registers — collapsible */}
         {docData.acdoca?.length > 0 && (
