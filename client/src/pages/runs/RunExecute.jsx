@@ -245,11 +245,29 @@ export default function RunExecute() {
           }
         } else {
 
+        // Parse FI compound key: "BUKRS/BELNR/GJAHR" or plain BELNR
+        let fiBukrs = null, fiBelnr = docNum, fiGjahr = null;
+        if (objectId.includes('/')) {
+          const parts = objectId.split('/');
+          if (parts.length >= 3) {
+            fiBukrs = parts[0];
+            fiBelnr = parts[1].padStart(10, '0');
+            fiGjahr = parts[2];
+          } else if (parts.length === 2) {
+            fiBelnr = parts[0].padStart(10, '0');
+            fiGjahr = parts[1];
+          }
+        }
+        console.log('[ProofForge] FI key parsed:', { fiBukrs, fiBelnr, fiGjahr });
+
         // 1. BKPF — extended header
         console.log('[ProofForge] Fetching BKPF header...');
+        let bkpfWhere = `BELNR EQ '${fiBelnr}'`;
+        if (fiBukrs) bkpfWhere += ` AND BUKRS EQ '${fiBukrs}'`;
+        if (fiGjahr) bkpfWhere += ` AND GJAHR EQ '${fiGjahr}'`;
         const bkpfRows = await fetchViaSoapRfc('BKPF',
           ['BUKRS','BELNR','GJAHR','BLART','BUDAT','BLDAT','MONAT','WAERS','KURSF','BKTXT','XBLNR','STBLG','STJAH','BSTAT','USNAM','CPUDT','CPUTM','TCODE','PPNAM','NUMPG','AWTYP','AWKEY'],
-          [`BELNR EQ '${docNum}'`],
+          [bkpfWhere],
           sys.base_url, client, auth
         );
         console.log('[ProofForge] BKPF rows:', bkpfRows.length);
@@ -536,7 +554,12 @@ export default function RunExecute() {
     const lang = sys.language || 'EN';
     const docNum = objectId.padStart(10, '0');
     if (objectType?.startsWith('FI Document')) {
-      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=FB03%20RF05L-BELNR=${docNum}&sap-client=${client}&sap-language=${lang}`;
+      let belnr = docNum;
+      if (objectId.includes('/')) {
+        const parts = objectId.split('/');
+        belnr = (parts.length >= 3 ? parts[1] : parts[0]).padStart(10, '0');
+      }
+      return `${sys.base_url}/sap/bc/gui/sap/its/webgui?~transaction=FB03%20RF05L-BELNR=${belnr}&sap-client=${client}&sap-language=${lang}`;
     }
     if (objectType === 'Cash Document') {
       return `${sys.base_url}/sap/bc/ui2/flp?sap-client=${client}&sap-language=${lang}#CashJournal-enterCashJournalEntry?sap-ui-tech-hint=GUI`;
